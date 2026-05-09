@@ -15,20 +15,25 @@ Single-user personal finance dashboard. Existing Vite/React app with ~7,751 embe
 
 ## 2. Architecture
 
+**Configuration constants** (must be substituted before deployment):
+- `GITHUB_USERNAME` — your GitHub account username (determines the Pages URL)
+- `GITHUB_PAGES_URL` — `https://<GITHUB_USERNAME>.github.io/gastos/`
+- This URL must be set as the Supabase Auth redirect URI AND as the Edge Function CORS origin. Both must match exactly.
+
 ```
-Browser (GitHub Pages SPA)
+Browser (GitHub Pages SPA — https://<GITHUB_USERNAME>.github.io/gastos/)
   └─ React + Vite (HashRouter for SPA routing compatibility)
        ├─ @supabase/supabase-js  (auth, data reads/writes)
        └─ XLSX upload parser (unchanged)
 
 Supabase
   ├─ Auth (magic link, single user: maxi.goldschwartz@gmail.com)
-  │    └─ Redirect URI: https://<user>.github.io/gastos/
+  │    └─ Redirect URI: https://<GITHUB_USERNAME>.github.io/gastos/
   ├─ PostgreSQL (transactions, settings, cat_log tables)
   ├─ RLS policies (all rows scoped to auth.uid())
   └─ Edge Function: categorize-tx
        ├─ validates caller's JWT (Authorization: Bearer <token>) before any action
-       ├─ returns CORS headers for github.io origin + handles OPTIONS preflight
+       ├─ returns CORS headers for https://<GITHUB_USERNAME>.github.io origin + handles OPTIONS preflight
        └─ calls Anthropic Claude API (key stored as Supabase secret)
 
 GitHub
@@ -211,14 +216,13 @@ For each new tx:
 
 All phases built at once (user preference), in dependency order:
 
-1. **Infra setup**: GitHub repo, Supabase project, tables + RLS, GitHub Secrets, configure Supabase Auth redirect URL
+1. **Infra setup + CI/CD**: GitHub repo, Supabase project, tables + RLS, GitHub Secrets, configure Supabase Auth redirect URL, GitHub Actions workflow + `gh-pages` deployment. CI/CD is set up here so all subsequent phases can be verified on the live Pages URL.
 2. **Auth integration**: `src/supabase.js`, `src/Auth.jsx`, App.jsx session gate (must complete before migration)
 3. **Base data migration**: user logs in once → retrieve UUID → run `scripts/migrate-base-data.js --user-id <uuid>`
 4. **Data layer**: replace localStorage + embedded data with Supabase reads/writes in Finanzas.jsx
-5. **Edge Function**: `supabase/functions/categorize-tx/index.ts` (JWT validation + CORS + Claude call)
+5. **Edge Function**: `supabase/functions/categorize-tx/index.ts` — JWT validation using `createClient(url, anonKey, { global: { headers: { Authorization: \`Bearer ${token}\` } } })` so all DB writes run under user's RLS context; CORS handling; Claude API call
 6. **AI categorization UI**: upload flow → categorize → review queue (Revisar tab)
 7. **Budget + Audit views**: Presupuesto and Auditoría tabs + settings UI
-8. **CI/CD**: GitHub Actions workflow + `gh-pages` deployment
 
 ---
 
