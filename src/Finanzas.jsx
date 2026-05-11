@@ -27,7 +27,7 @@ export const CATS = [
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
 
-const BANKS = ['Santander', 'Chase', 'Citibank']
+const BANKS = ['Alina ML', 'Cash', 'Chase', 'Citibank', 'Santander']
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
