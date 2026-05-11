@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend, CartesianGrid,
+  ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 import _ from 'lodash'
 import * as XLSX from 'xlsx'
@@ -398,7 +399,43 @@ export default function Finanzas({ session, onLogout }) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
+
 function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, selYm, monthlyChart, catChart }) {
+  const [showScatter, setShowScatter] = useState(false)
+
+  // Build scatter data — top 5 categories by count get distinct colors, rest = grey
+  const scatterData = useMemo(() => {
+    if (!showScatter || expenseTxs.length === 0) return []
+    const top5 = _.chain(expenseTxs).groupBy('cat').toPairs()
+      .orderBy(([, arr]) => arr.length, 'desc').take(5).map(([cat]) => cat).value()
+    return expenseTxs
+      .filter(t => t.date && t.usd != null)
+      .map(t => ({
+        x: new Date(t.date).getTime(),
+        y: Math.abs(t.usd),
+        colorIdx: top5.indexOf(t.cat ?? ''),
+        label: `${t.date} · ${t.merchant || t.cat || '—'} · ${fmtUSD(Math.abs(t.usd))}`,
+      }))
+  }, [showScatter, expenseTxs])
+
+  // Group scatter dots by color so Recharts can render per-series
+  const scatterSeries = useMemo(() => {
+    if (!showScatter) return []
+    const top5 = _.chain(expenseTxs).groupBy('cat').toPairs()
+      .orderBy(([, arr]) => arr.length, 'desc').take(5).map(([cat]) => cat).value()
+    const groups = {}
+    for (const pt of scatterData) {
+      const key = pt.colorIdx >= 0 ? top5[pt.colorIdx] : 'Otros'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(pt)
+    }
+    return Object.entries(groups).map(([name, data], i) => ({
+      name, data,
+      color: i < SCATTER_COLORS.length ? SCATTER_COLORS[i] : '#bbb',
+    }))
+  }, [showScatter, scatterData, expenseTxs])
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -443,6 +480,44 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, se
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* Scatter — collapsible, only rendered on demand */}
+      <div style={S.card}>
+        <button
+          onClick={() => setShowScatter(s => !s)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#555', fontWeight: 600, padding: 0 }}
+        >
+          {showScatter ? '▼' : '▶'} Scatter de gastos individuales
+        </button>
+        {showScatter && scatterSeries.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <ScatterChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="x" type="number" domain={['auto', 'auto']} scale="time"
+                  tick={{ fontSize: 10 }} tickFormatter={v => new Date(v).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })}
+                  name="Fecha"
+                />
+                <YAxis dataKey="y" type="number" tick={{ fontSize: 10 }} tickFormatter={fmtK} name="USD" />
+                <ZAxis range={[20, 20]} />
+                <Tooltip
+                  cursor={{ strokeDasharray: '3 3' }}
+                  content={({ payload }) => {
+                    if (!payload?.length) return null
+                    const pt = payload[0]?.payload
+                    return <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '6px 10px', fontSize: 12 }}>{pt.label}</div>
+                  }}
+                />
+                <Legend />
+                {scatterSeries.map(s => (
+                  <Scatter key={s.name} name={s.name} data={s.data} fill={s.color} fillOpacity={0.65} />
+                ))}
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
