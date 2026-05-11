@@ -1640,6 +1640,356 @@ Note: `uploadParser.js` gives camelCase fields (`rawDesc`, `usdRate`). After `up
 
 ---
 
+## Task 14: Historical Dólar Blue Exchange Rates
+
+**Problem:** The current code uses a single fixed `usd_rate` (e.g. 1050) for all transactions. This is wrong — the dólar blue rate has varied enormously over 2020–2025. All existing `usd` values in the DB need to be recalculated using the correct historical rate for each transaction date.
+
+**Files:**
+- Create: `scripts/fetch-blue-rates.js` — fetch historical dólar blue series from bluelytics API
+- Create: `scripts/recalc-usd.js` — recalculate `usd` for every transaction using date-matched blue rate
+- Modify: `src/uploadParser.js` — stop accepting a user-entered fixed rate; instead look up the historic rate for the transaction date
+- Add: `supabase/migrations/002_blue_rates.sql` — `blue_rates` table (date, rate)
+- Modify: `src/db.js` — add `loadBlueRate(date)` function
+
+**Steps:**
+
+- [ ] **Step 14.1: Create blue_rates table**
+
+  Apply via Supabase MCP / SQL Editor:
+  ```sql
+  create table public.blue_rates (
+    date    date primary key,
+    rate    numeric not null,  -- ARS per USD, dólar blue
+    source  text default 'bluelytics'
+  );
+  -- No RLS — this is reference data, read by all authenticated users
+  alter table public.blue_rates enable row level security;
+  create policy "authenticated users can read blue_rates"
+    on public.blue_rates for select
+    using (auth.role() = 'authenticated');
+  ```
+
+- [ ] **Step 14.2: Fetch and populate historical rates**
+
+  Create `scripts/fetch-blue-rates.js`:
+  ```js
+  // Fetches daily dólar blue rates from bluelytics.com.ar
+  // and inserts into Supabase blue_rates table.
+  // API: https://api.bluelytics.com.ar/v2/evolution.json (returns full history)
+  import { createClient } from '@supabase/supabase-js'
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+
+  async function run() {
+    const res = await fetch('https://api.bluelytics.com.ar/v2/evolution.json')
+    if (!res.ok) throw new Error(`bluelytics API ${res.status}`)
+    const data = await res.json()
+
+    // Response is array of {date, value_sell, value_buy, ...} for blue + oficial
+    // Filter to blue only, use value_sell (what you pay to buy USD)
+    const rows = data
+      .filter(d => d.source === 'Blue')
+      .map(d => ({ date: d.date.slice(0, 10), rate: d.value_sell }))
+      .filter(d => d.date >= '2020-01-01')
+
+    console.log(`Fetched ${rows.length} blue rate entries`)
+
+    // Upsert in chunks
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await supabase.from('blue_rates').upsert(rows.slice(i, i + 500), { onConflict: 'date' })
+      if (error) { console.error(error.message); process.exit(1) }
+    }
+    console.log('Blue rates populated.')
+  }
+  run()
+  ```
+
+  Run:
+  ```bash
+  SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/fetch-blue-rates.js
+  ```
+
+  Verify in Supabase: `blue_rates` table should have ~1500+ rows spanning 2020–2025.
+
+- [ ] **Step 14.3: Recalculate all transaction USD values**
+
+  Create `scripts/recalc-usd.js`:
+  ```js
+  import { createClient } from '@supabase/supabase-js'
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+
+  async function run() {
+    // Load all rates into a map for fast lookup
+    const { data: rates, error: rErr } = await supabase.from('blue_rates').select('date,rate')
+    if (rErr) throw rErr
+    const rateMap = {}
+    for (const r of rates) rateMap[r.date] = r.rate
+
+    // Helper: find nearest available rate (look back up to 7 days for weekends/holidays)
+    function getRateForDate(dateStr) {
+      for (let i = 0; i <= 7; i++) {
+        const d = new Date(dateStr)
+        d.setDate(d.getDate() - i)
+        const key = d.toISOString().slice(0, 10)
+        if (rateMap[key]) return rateMap[key]
+      }
+      return null
+    }
+
+    // Load all transactions
+    const { data: txs, error: tErr } = await supabase.from('transactions').select('id,date,ars')
+    if (tErr) throw tErr
+
+    console.log(`Recalculating USD for ${txs.length} transactions...`)
+    let updated = 0, noRate = 0
+
+    const updates = []
+    for (const tx of txs) {
+      const rate = getRateForDate(tx.date)
+      if (!rate) { noRate++; continue }
+      const usd = tx.ars != null ? +(tx.ars / rate).toFixed(2) : null
+      updates.push({ id: tx.id, usd, usd_rate: rate })
+    }
+
+    // Batch update in chunks of 200
+    for (let i = 0; i < updates.length; i += 200) {
+      const chunk = updates.slice(i, i + 200)
+      for (const u of chunk) {
+        await supabase.from('transactions').update({ usd: u.usd, usd_rate: u.usd_rate }).eq('id', u.id)
+      }
+      updated += chunk.length
+      if (i % 2000 === 0) console.log(`  ${updated}/${updates.length}...`)
+    }
+
+    console.log(`Done. Updated: ${updated}, no rate found: ${noRate}`)
+  }
+  run()
+  ```
+
+  Run:
+  ```bash
+  SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/recalc-usd.js
+  ```
+
+- [ ] **Step 14.4: Add loadBlueRate to db.js**
+
+  Add to `src/db.js`:
+  ```js
+  // Returns the dólar blue rate for a given date (looks back up to 7 days).
+  export async function loadBlueRate(dateStr) {
+    for (let i = 0; i <= 7; i++) {
+      const d = new Date(dateStr)
+      d.setDate(d.getDate() - i)
+      const key = d.toISOString().slice(0, 10)
+      const { data } = await supabase.from('blue_rates').select('rate').eq('date', key).maybeSingle()
+      if (data) return data.rate
+    }
+    return null
+  }
+  ```
+
+- [ ] **Step 14.5: Fix upload flow to use historical rate**
+
+  In `src/uploadParser.js`, change the `usdRate` parameter to be looked up from `blue_rates` per transaction date instead of a user-entered value. The upload UI should no longer show a "tipo de cambio" input — the rate is determined automatically.
+
+  In `parseSantanderAR`, after computing `fecha`, call `loadBlueRate(fecha)` (async) and use the result for `usd` and `usdRate`. If no rate found (future date?), fall back to the most recent available rate.
+
+  Update `parseXLSX` to be async and remove the `usdRate` parameter entirely.
+
+- [ ] **Step 14.6: Commit**
+
+  ```bash
+  git add supabase/migrations/002_blue_rates.sql scripts/fetch-blue-rates.js scripts/recalc-usd.js src/db.js src/uploadParser.js
+  git commit -m "feat: historical dólar blue rates — recalculate all USD values"
+  git push origin main
+  ```
+
+---
+
+## Task 15: Filter Improvements + UI Polish
+
+**Files:**
+- Modify: `src/Finanzas.jsx` — fix xfer filter, multi-year select, separate filter groups visually
+
+- [ ] **Step 15.1: Fix "con xfers" filter**
+
+  Grep for the xfer filter logic:
+  ```bash
+  grep -o 'xfer[^;,}]*' src/Finanzas.jsx | head -10
+  ```
+
+  The filter likely checks `tx.xfer === true` but uploaded transactions may have `xfer = false` (default) even for transfers, or the filter direction may be inverted. Fix the predicate so:
+  - Default view: `xfer = false` transactions only (expenses/income, no transfers)
+  - "Con xfers" checked: include all transactions including transfers
+
+- [ ] **Step 15.2: Multi-year select**
+
+  Replace the year radio buttons with checkboxes so multiple years can be selected simultaneously. Keep YTD, mes, trimestre as radio buttons (they are time-range shortcuts, not year selectors). The two filter groups should be visually separated:
+
+  ```
+  ┌─ Período ──────────────────────────────────┐
+  │  ○ YTD  ○ Mes  ○ Trimestre  ○ Custom      │
+  ├─ Año (multi-select) ───────────────────────┤
+  │  ☐ 2020  ☐ 2021  ☑ 2024  ☑ 2025          │
+  └────────────────────────────────────────────┘
+  ┌─ Categoría / Grupo ────────────────────────┐
+  │  (group filters here)                      │
+  └────────────────────────────────────────────┘
+  ┌─ Banco ────────────────────────────────────┐
+  │  (bank filters here)                       │
+  └────────────────────────────────────────────┘
+  ```
+
+  Use subtle `border` or background color difference to separate the three filter zones.
+
+- [ ] **Step 15.3: Commit**
+
+  ```bash
+  git add src/Finanzas.jsx
+  git commit -m "fix: xfer filter, multi-year select, separate filter sections"
+  git push origin main
+  ```
+
+---
+
+## Task 16: Group Management UI
+
+**Files:**
+- Create or extend: `src/views/Settings.jsx` — group CRUD (create, rename, delete, assign categories)
+- Modify: `src/db.js` — settings already has groups JSONB; Settings.jsx saves via `saveSettings`
+
+Groups live in `settings.groups: [{id, name, categories[]}]`. Managing them is pure CRUD on that JSONB field.
+
+- [ ] **Step 16.1: Create src/views/Settings.jsx**
+
+  Create `src/views/Settings.jsx` with a Groups section:
+  - List existing groups with their assigned categories
+  - "Nuevo grupo" button → text input for name → creates `{id: crypto.randomUUID(), name, categories: []}`
+  - Rename: click group name → editable inline
+  - Assign categories: multi-select from AVAILABLE_CATEGORIES
+  - Delete: trash icon → confirm → removes from array
+  - Save: calls `saveSettings({ ...settings, groups: updatedGroups })`
+
+- [ ] **Step 16.2: Add Settings tab to Finanzas.jsx**
+
+  ```js
+  import Settings from"./views/Settings.jsx";
+  ```
+
+  Add "Configuración" tab.
+
+- [ ] **Step 16.3: Commit**
+
+  ```bash
+  git add src/views/Settings.jsx src/Finanzas.jsx
+  git commit -m "feat: group management UI in Settings tab"
+  git push origin main
+  ```
+
+---
+
+## Task 17: Manual Transaction Add/Delete (Soft Delete)
+
+**Files:**
+- Modify: `supabase/migrations/003_soft_delete.sql` — add `deleted_at` column to transactions
+- Modify: `src/db.js` — add `softDeleteTransaction`, `addManualTransaction`, filter deleted in `loadTransactions`
+- Modify: `src/views/Revisar.jsx` or new: `src/views/Transactions.jsx` — UI for manual add + delete button
+- Modify: `src/Finanzas.jsx` — hide deleted transactions from all views
+- Modify: `src/db.js` — `upsertTransactions` must respect soft-deleted IDs on re-upload
+
+- [ ] **Step 17.1: Add soft delete column**
+
+  ```sql
+  alter table public.transactions add column deleted_at timestamptz;
+  create index transactions_deleted on public.transactions(user_id, deleted_at) where deleted_at is null;
+  ```
+
+- [ ] **Step 17.2: Update loadTransactions to exclude deleted**
+
+  ```js
+  export async function loadTransactions() {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .is('deleted_at', null)   // exclude soft-deleted
+      .order('date', { ascending: false })
+    if (error) throw error
+    return data
+  }
+  ```
+
+- [ ] **Step 17.3: Add softDeleteTransaction**
+
+  ```js
+  export async function softDeleteTransaction(id) {
+    const { error } = await supabase
+      .from('transactions')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+  }
+  ```
+
+- [ ] **Step 17.4: On re-upload, respect soft-deleted IDs**
+
+  In `upsertTransactions`, after normalizing, query for any of the incoming IDs that are already soft-deleted. Tag those rows with `deleted_at` preserved (don't restore them). Log them as `deleted` in a banner:
+
+  ```js
+  export async function upsertTransactions(txs) {
+    const { data: { user } } = await supabase.auth.getUser()
+    const normalized = txs.map(tx => normalizeTx(tx, user.id))
+    const ids = normalized.map(t => t.id)
+
+    // Find which incoming IDs are soft-deleted — skip them
+    const { data: deleted } = await supabase
+      .from('transactions').select('id').in('id', ids).not('deleted_at', 'is', null)
+    const deletedSet = new Set((deleted || []).map(d => d.id))
+    const toInsert = normalized.filter(t => !deletedSet.has(t.id))
+
+    for (let i = 0; i < toInsert.length; i += 200) {
+      const { error } = await supabase
+        .from('transactions').upsert(toInsert.slice(i, i + 200), { onConflict: 'id' })
+      if (error) throw error
+    }
+    return { skippedDeleted: deletedSet.size }
+  }
+  ```
+
+- [ ] **Step 17.5: Add manual transaction form**
+
+  Add a "Nueva transacción" button to the Transactions tab (or a mini-form in Settings). Fields: date, merchant, amount (ARS), category, notes, project. On submit: calls `upsertTransactions` with `id = manual_${Date.now()}`.
+
+- [ ] **Step 17.6: Add delete button to transaction rows**
+
+  In the Transactions table in Finanzas.jsx, add a small trash/×  button per row. On click: confirm → `softDeleteTransaction(id)` → remove from local state.
+
+- [ ] **Step 17.7: Commit**
+
+  ```bash
+  git add src/db.js src/Finanzas.jsx src/views/
+  git commit -m "feat: soft delete + manual transaction add"
+  git push origin main
+  ```
+
+---
+
+## Task 18: Charts — PENDING USER CHOICE
+
+> ⚠️ **Do not implement until user selects chart option (A, B, or C) from the proposal above.**
+
+Once the user picks an option, implement the chosen charts to replace the existing bar charts and line curves in the Dashboard view. Use Recharts components already installed.
+
+---
+
+## Task 19: Alina ML Handling — PENDING CLARIFICATION
+
+> ⚠️ **Do not implement until user answers the Alina ML question.**
+
+Once clarified: implement special handling for Mercado Libre / Mercado Pago transactions that are Alina's purchases — likely by adding a `sub_source` field or a special categorization prompt that asks what each ML item actually was.
+
+---
+
 ## Quick Reference
 
 | Task | Command |
