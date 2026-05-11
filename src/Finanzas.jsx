@@ -10,6 +10,7 @@ import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
+import { categorizeTxs } from './categorize.js'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -241,8 +242,17 @@ export default function Finanzas({ session, onLogout }) {
         const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
         return { ...tx, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
       })
+      setUploadMsg({ loading: true, text: `Categorizando ${count} transacciones…` })
+      const catLog = await loadCatLog({ limit: 1000 })
+      const categorized = await categorizeTxs(
+        enriched,
+        settings,
+        catLog,
+        session?.access_token,
+        (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
+      )
       setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
-      const { skipped } = await upsertTransactions(enriched)
+      const { skipped } = await upsertTransactions(categorized)
       const fresh = await loadTransactions()
       setTxs(fresh)
       const skipMsg = skipped.length ? ` (${skipped.length} omitidas — borradas previamente)` : ''
