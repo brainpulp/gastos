@@ -8,4 +8,11 @@ if (!url || !key) {
 }
 
 // Singleton — only db.js and Auth.jsx may import this file
-export const supabase = createClient(url, key)
+// flowType: 'implicit' puts tokens directly in the URL hash — no localStorage
+// code_verifier needed, so magic links work even when opened in a fresh browser.
+export const supabase = createClient(url, key, {
+  auth: {
+    flowType: 'implicit',
+    detectSessionInUrl: true,
+  },
+})
