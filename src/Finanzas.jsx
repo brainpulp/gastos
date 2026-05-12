@@ -200,9 +200,10 @@ export default function Finanzas({ session, onLogout }) {
   }), [txs, selYears, selYm, xferMode, catF, bankF, groupF, search])
 
   // Expense KPIs always exclude transfers regardless of xferMode
-  const expenseTxs = useMemo(() => filtered.filter(t => !t.xfer && t.ars < 0), [filtered])
-  const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (t.usd || 0), 0), [expenseTxs])
-  const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (t.ars || 0), 0), [expenseTxs])
+  // ars may be null for USD-only banks (e.g. Citibank) -- fall back to usd sign
+  const expenseTxs = useMemo(() => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)), [filtered])
+  const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
+  const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
   const periodMonths = useMemo(() => {
     if (selYm) return 1
     return [...new Set(expenseTxs.map(t => t.ym).filter(Boolean))].length || 1
