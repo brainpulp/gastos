@@ -105,6 +105,8 @@ export async function loadSettings() {
     groups: [],
     vendor_hints: {},
     usd_rate: 1050,
+    expense_groups: [],
+    monthly_expense_selection: { groups: [], cats: [] },
   }
 }
 
