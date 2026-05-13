@@ -27,7 +27,7 @@ export const CATS = [
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
 
-const BANKS = ['Alina ML', 'Cash', 'Chase', 'Citibank', 'Santander']
+const BANKS = ['Chase', 'Citibank', 'Santander']
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -221,11 +221,11 @@ export default function Finanzas({ session, onLogout }) {
   }, [])
 
   const availYears = useMemo(
-    () => [...new Set(txs.map(t => t.year).filter(Boolean))].sort((a, b) => b - a),
+    () => [...new Set(txs.map(t => t.date?.slice(0, 4)).filter(Boolean))].sort().reverse(),
     [txs]
   )
   const filtered = useMemo(() => txs.filter(t => {
-    if (selYears.length && !selYears.includes(String(t.year))) return false
+    if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
     if (t.xfer) return false
@@ -451,10 +451,10 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, mo
     <div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         {[
-          { val: fmtUSD(Math.abs(totalUSD)), lbl: 'Gastos (USD, sin xfers)', color: '#c0392b' },
-          { val: fmtARS(Math.abs(totalARS)), lbl: 'Gastos (ARS, sin xfers)', color: '#c0392b' },
+          { val: fmtUSD(Math.abs(totalUSD)), lbl: 'Gastos USD', color: '#c0392b' },
+          { val: fmtARS(Math.abs(totalARS)), lbl: 'Gastos ARS', color: '#c0392b' },
           ...(periodMonths > 1 ? [{ val: fmtUSD(perMonthUSD), lbl: `Prom/mes (${periodMonths} meses)`, color: '#e67e22' }] : []),
-          { val: String(expenseTxs.length), lbl: 'Transacciones (sin xfers)', color: '#1a1a2e' },
+          { val: String(expenseTxs.length), lbl: 'Transacciones', color: '#1a1a2e' },
         ].map(({ val, lbl, color }) => (
           <div key={lbl} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
             <div style={{ ...S.statVal, color }}>{val}</div>

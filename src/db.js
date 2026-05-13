@@ -92,13 +92,13 @@ export async function loadSettings() {
   const { data: { user } } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('settings')
-    .select('*')
+    .select('user_id, monthly_budget_usd, category_budgets, groups, vendor_hints, usd_rate, expense_groups')
     .eq('user_id', user.id)
     .maybeSingle()
   if (error) throw error
 
   // Return defaults if no row yet
-  return data ?? {
+  const defaults = {
     user_id: user.id,
     monthly_budget_usd: 0,
     category_budgets: {},
@@ -106,8 +106,10 @@ export async function loadSettings() {
     vendor_hints: {},
     usd_rate: 1050,
     expense_groups: [],
-    monthly_expense_selection: { groups: [], cats: [] },
   }
+  if (!data) return defaults
+  // Ensure expense_groups is always an array even if column returned null
+  return { ...defaults, ...data, expense_groups: data.expense_groups ?? [] }
 }
 
 export async function saveSettings(fields) {
