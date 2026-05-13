@@ -15,14 +15,13 @@ import { categorizeTxs } from './categorize.js'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-// Canonical category list. "Alina ML" kept pending Task 19 clarification.
 export const CATS = [
-  'Alina ML', 'Amazon FBA', 'AR taxes', 'Arcos', 'Boat maintenance',
-  'Business expense', 'Car maintenance', 'Carhué obra', 'Cash', 'Clothing',
+  'Amazon FBA', 'AR taxes', 'Arcos', 'Boat maintenance',
+  'Business expense', 'Car maintenance', 'Carhué obra', 'Clothing',
   'Delta', 'Dining', 'El Dorado', 'Entertainment', 'Food', 'Gas', 'Gifts',
-  'Healthcare', 'Home utilities', 'Interbank credit', 'Interbank debit',
-  'Interbank incoming', 'Interbank outgoing', 'K', 'Legal fees', 'Loans given',
-  'M', 'Mocoreta', 'Must trace', 'Personal', 'pets', 'Proyectos',
+  'Healthcare', 'Home utilities',
+  'Interbank incoming', 'Interbank outgoing', 'Legal fees', 'Loans given',
+  'Mocoreta', 'Must trace', 'Personal', 'pets', 'Proyectos',
   'Puente to Santander', 'Roca deptos', 'Shopping', 'sports and exercise',
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
