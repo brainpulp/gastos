@@ -204,6 +204,21 @@ export default function Finanzas({ session, onLogout }) {
   const expenseTxs = useMemo(() => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)), [filtered])
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
+  // Monthly expense KPI — categories defined by expense_groups in settings
+  const expenseGroupCats = useMemo(() => {
+    const eg = settings?.expense_groups ?? []
+    return new Set(eg.flatMap(g => g.cats ?? []))
+  }, [settings])
+  const monthlyExpenseTxs = useMemo(
+    () => expenseTxs.filter(t => expenseGroupCats.has(t.cat)),
+    [expenseTxs, expenseGroupCats]
+  )
+  const monthlyExpenseAvg = useMemo(() => {
+    if (!monthlyExpenseTxs.length) return null
+    const months = [...new Set(monthlyExpenseTxs.map(t => t.ym).filter(Boolean))].length || 1
+    return Math.abs(monthlyExpenseTxs.reduce((s, t) => s + (+t.usd || 0), 0)) / months
+  }, [monthlyExpenseTxs])
+
   const periodMonths = useMemo(() => {
     if (selYm) return 1
     return [...new Set(expenseTxs.map(t => t.ym).filter(Boolean))].length || 1
