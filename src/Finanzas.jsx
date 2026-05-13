@@ -107,29 +107,6 @@ const badge = (cat) => ({
   background: catColor(cat, 0.15), color: catColor(cat, 0.85),
 })
 
-// ─── Year checkbox group ──────────────────────────────────────────────────────
-
-function YearFilter({ years, selected, onChange }) {
-  return (
-    <div style={S.filterGroup}>
-      <span style={S.filterLabel}>Año</span>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {years.map(y => (
-          <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 13, cursor: 'pointer' }}>
-            <input
-              type="checkbox" checked={selected.includes(y)}
-              onChange={e => onChange(e.target.checked ? [...selected, y] : selected.filter(x => x !== y))}
-            />
-            {y}
-          </label>
-        ))}
-        {selected.length > 0 && (
-          <button onClick={() => onChange([])} style={{ ...S.btnSm(), fontSize: 11, padding: '1px 6px' }}>×</button>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // ─── Multi-select filter dropdown ────────────────────────────────────────────
 
@@ -220,7 +197,6 @@ export default function Finanzas({ session, onLogout }) {
   const [selYears, setSelYears] = useState([])
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [xferMode, setXferMode] = useState('sin') // 'sin'|'solo'|'all'
   const [catFs, setCatFs] = useState([])
   const [bankFs, setBankFs] = useState([])
   const [search, setSearch] = useState('')
@@ -249,11 +225,10 @@ export default function Finanzas({ session, onLogout }) {
     [txs]
   )
   const filtered = useMemo(() => txs.filter(t => {
-    if (selYears.length && !selYears.includes(t.year)) return false
+    if (selYears.length && !selYears.includes(String(t.year))) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
-    if (xferMode === 'sin' && t.xfer) return false
-    if (xferMode === 'solo' && !t.xfer) return false
+    if (t.xfer) return false
     if (catFs.length && !catFs.includes(t.cat)) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (search) {
@@ -262,11 +237,11 @@ export default function Finanzas({ session, onLogout }) {
             t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [txs, selYears, dateFrom, dateTo, xferMode, catFs, bankFs, search])
+  }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search])
 
-  // Expense KPIs always exclude transfers regardless of xferMode
-  // ars may be null for USD-only banks (e.g. Citibank) -- fall back to usd sign
-  const expenseTxs = useMemo(() => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)), [filtered])
+  // Expense txs = non-transfers (already excluded by filtered) with negative amount
+  // ars may be null for USD-only banks — fall back to usd sign
+  const expenseTxs = useMemo(() => filtered.filter(t => t.ars != null ? +t.ars < 0 : +t.usd < 0), [filtered])
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
   // Per-group dashboard KPIs — one entry per group with showOnDash: true
@@ -357,7 +332,7 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
-  const resetFilters = () => { setSelYears([]); setDateFrom(''); setDateTo(''); setXferMode('sin'); setCatFs([]); setBankFs([]); setSearch('') }
+  const resetFilters = () => { setSelYears([]); setDateFrom(''); setDateTo(''); setCatFs([]); setBankFs([]); setSearch('') }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
   if (loadErr) return <div style={{ padding: 32, color: '#c00', fontFamily: 'sans-serif' }}>Error: {loadErr}</div>
@@ -405,15 +380,7 @@ export default function Finanzas({ session, onLogout }) {
                 <input type="date" style={{ ...S.input, width: 130 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
               </div>
             </div>
-            <YearFilter years={availYears} selected={selYears} onChange={setSelYears} />
-            <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Transferencias</span>
-              <select style={S.select} value={xferMode} onChange={e => setXferMode(e.target.value)}>
-                <option value="sin">Sin transferencias</option>
-                <option value="all">Todas</option>
-                <option value="solo">Solo transferencias</option>
-              </select>
-            </div>
+            <MultiSelectFilter label="Año" options={availYears.map(String)} selected={selYears} onChange={setSelYears} />
             <MultiSelectFilter label="Categoría" options={CATS} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
             <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
