@@ -27,7 +27,9 @@ export const CATS = [
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
 
-const BANKS = ['Chase', 'Citibank', 'Santander']
+const BANKS = ['BofA', 'Chase', 'Citibank', 'Santander', 'Wells Fargo']
+
+const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -75,6 +77,7 @@ const S = {
   select: { padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13, background: '#fff' },
   input: { padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13 },
   statVal: { fontSize: 28, fontWeight: 700, color: '#1a1a2e' },
+  statSub: { fontSize: 12, color: '#aaa', marginTop: 3 },
   statLbl: { fontSize: 12, color: '#888', marginTop: 2 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: {
@@ -91,8 +94,9 @@ const S = {
   }),
   btnSm: (variant = 'ghost') => ({
     padding: '3px 8px', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer', fontSize: 12,
-    background: variant === 'danger' ? '#fee2e2' : 'transparent',
-    color: variant === 'danger' ? '#c0392b' : '#555',
+    background: variant === 'danger' ? '#fee2e2' : variant === 'active' ? '#1a1a2e' : 'transparent',
+    color: variant === 'danger' ? '#c0392b' : variant === 'active' ? '#fff' : '#555',
+    borderColor: variant === 'active' ? '#1a1a2e' : '#ddd',
   }),
 }
 
@@ -120,15 +124,12 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
   }, [])
 
   const toggle = val => onChange(selected.includes(val) ? selected.filter(x => x !== val) : [...selected, val])
-
   const groupAllSelected = g => g.cats.length > 0 && g.cats.every(c => selected.includes(c))
   const groupSomeSelected = g => g.cats.some(c => selected.includes(c))
   const toggleGroup = g => {
     if (groupAllSelected(g)) onChange(selected.filter(c => !g.cats.includes(c)))
     else onChange([...new Set([...selected, ...g.cats])])
   }
-
-  // cats that belong to any group (shown under groups section)
   const groupedCatSet = new Set(groups.flatMap(g => g.cats))
   const ungroupedOptions = options.filter(o => !groupedCatSet.has(o))
 
@@ -200,6 +201,7 @@ export default function Finanzas({ session, onLogout }) {
   const [catFs, setCatFs] = useState([])
   const [bankFs, setBankFs] = useState([])
   const [search, setSearch] = useState('')
+  const [showUncatOnly, setShowUncatOnly] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -224,27 +226,44 @@ export default function Finanzas({ session, onLogout }) {
     () => [...new Set(txs.map(t => t.date?.slice(0, 4)).filter(Boolean))].sort().reverse(),
     [txs]
   )
+
+  const lastTxDate = useMemo(
+    () => txs.length ? txs.reduce((m, t) => (t.date > m ? t.date : m), '') : null,
+    [txs]
+  )
+
   const filtered = useMemo(() => txs.filter(t => {
     if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
-    if (t.xfer) return false
     if (catFs.length && !catFs.includes(t.cat)) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
+    if (showUncatOnly && !isUncat(t)) return false
     if (search) {
       const q = search.toLowerCase()
       if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
             t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search])
+  }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search, showUncatOnly])
 
-  // Expense txs = non-transfers (already excluded by filtered) with negative amount
-  // ars may be null for USD-only banks — fall back to usd sign
-  const expenseTxs = useMemo(() => filtered.filter(t => t.ars != null ? +t.ars < 0 : +t.usd < 0), [filtered])
+  // Expense txs: non-transfers with negative amount (drives all KPIs and charts)
+  const expenseTxs = useMemo(
+    () => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)),
+    [filtered]
+  )
+
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
-  // Per-group dashboard KPIs — one entry per group with showOnDash: true
+
+  const periodMonths = useMemo(
+    () => [...new Set(expenseTxs.map(t => t.ym).filter(Boolean))].length || 1,
+    [expenseTxs]
+  )
+  const perMonthUSD = useMemo(() => Math.abs(totalUSD) / periodMonths, [totalUSD, periodMonths])
+  const perMonthARS = useMemo(() => Math.abs(totalARS) / periodMonths, [totalARS, periodMonths])
+
+  // Per-group dashboard KPIs
   const dashGroupStats = useMemo(() => {
     const eg = settings?.expense_groups ?? []
     return eg
@@ -256,20 +275,39 @@ export default function Finanzas({ session, onLogout }) {
         const avg = gTxs.length
           ? Math.abs(gTxs.reduce((s, t) => s + (+t.usd || 0), 0)) / months
           : null
-        return { id: g.id, name: g.name, avg }
+        const avgARS = gTxs.length
+          ? Math.abs(gTxs.reduce((s, t) => s + (+t.ars || 0), 0)) / months
+          : null
+        return { id: g.id, name: g.name, avg, avgARS }
       })
   }, [settings, expenseTxs])
 
-  const periodMonths = useMemo(() => {
-    return [...new Set(expenseTxs.map(t => t.ym).filter(Boolean))].length || 1
-  }, [expenseTxs])
-  const perMonthUSD = useMemo(() => Math.abs(totalUSD) / periodMonths, [totalUSD, periodMonths])
+  // Stacked monthly chart: top N cats by spend + Otros
+  const STACK_N = 8
+  const monthlyStackedChart = useMemo(() => {
+    const catTotals = {}
+    for (const tx of expenseTxs) {
+      const cat = tx.cat || 'Sin cat'
+      catTotals[cat] = (catTotals[cat] || 0) + Math.abs(tx.usd || 0)
+    }
+    const topCats = Object.entries(catTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, STACK_N)
+      .map(([cat]) => cat)
 
-  const monthlyChart = useMemo(() => {
-    const grouped = _.groupBy(expenseTxs, 'ym')
-    return Object.entries(grouped)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([ym, rows]) => ({ ym, label: ym.slice(0, 7), usd: Math.abs(_.sumBy(rows, 'usd')) }))
+    const byMonth = {}
+    for (const tx of expenseTxs) {
+      if (!tx.ym) continue
+      if (!byMonth[tx.ym]) byMonth[tx.ym] = { ym: tx.ym, label: tx.ym }
+      const cat = tx.cat || 'Sin cat'
+      const key = topCats.includes(cat) ? cat : 'Otros'
+      byMonth[tx.ym][key] = (byMonth[tx.ym][key] || 0) + Math.abs(tx.usd || 0)
+    }
+    const hasOtros = Object.values(byMonth).some(m => m['Otros'] > 0)
+    return {
+      data: Object.values(byMonth).sort((a, b) => a.ym.localeCompare(b.ym)),
+      cats: hasOtros ? [...topCats, 'Otros'] : topCats,
+    }
   }, [expenseTxs])
 
   const catChart = useMemo(() => {
@@ -332,19 +370,23 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
-  const resetFilters = () => { setSelYears([]); setDateFrom(''); setDateTo(''); setCatFs([]); setBankFs([]); setSearch('') }
+  const resetFilters = () => {
+    setSelYears([]); setDateFrom(''); setDateTo('')
+    setCatFs([]); setBankFs([]); setSearch(''); setShowUncatOnly(false)
+  }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
   if (loadErr) return <div style={{ padding: 32, color: '#c00', fontFamily: 'sans-serif' }}>Error: {loadErr}</div>
 
   const reviewCount = txs.filter(t => t.needs_review && !t.deleted_at).length
+  const uncatCount = txs.filter(isUncat).length
+
   const TABS = [
     { id: 'dash', label: 'Dashboard' },
-    { id: 'totales', label: 'Totales' },
     { id: 'txs', label: 'Transacciones' },
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
     { id: 'presupuesto', label: 'Presupuesto' },
-    { id: 'auditoria', label: 'Auditoría' },
+    { id: 'auditoria', label: 'Historial IA' },
     { id: 'settings', label: '⚙ Config' },
   ]
 
@@ -369,7 +411,6 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {/* Filter bar — hidden on audit + settings */}
         {!['auditoria', 'settings'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
@@ -387,17 +428,38 @@ export default function Finanzas({ session, onLogout }) {
               <span style={S.filterLabel}>Buscar</span>
               <input style={{ ...S.input, width: '100%' }} placeholder="descripción, comercio, notas…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
+            <div style={{ ...S.filterGroup, justifyContent: 'flex-end' }}>
+              <span style={S.filterLabel}>Sin cat</span>
+              <button
+                style={{ ...S.btnSm(showUncatOnly ? 'active' : 'ghost'), padding: '4px 10px', whiteSpace: 'nowrap' }}
+                onClick={() => setShowUncatOnly(s => !s)}
+              >
+                {showUncatOnly ? '✓ ' : ''}{uncatCount} sin categoría
+              </button>
+            </div>
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <button style={S.btnSm()} onClick={resetFilters}>Limpiar</button>
             </div>
           </div>
         )}
 
-        {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} monthlyChart={monthlyChart} catChart={catChart} dashGroupStats={dashGroupStats} />}
-        {activeTab === 'totales' && <TotalesTab data={totalesData} badge={badge} />}
+        {activeTab === 'dash' && (
+          <DashTab
+            expenseTxs={expenseTxs}
+            totalUSD={totalUSD} totalARS={totalARS}
+            perMonthUSD={perMonthUSD} perMonthARS={perMonthARS}
+            periodMonths={periodMonths}
+            monthlyStackedChart={monthlyStackedChart}
+            catChart={catChart}
+            dashGroupStats={dashGroupStats}
+            lastTxDate={lastTxDate}
+            totalesData={totalesData}
+            badge={badge}
+          />
+        )}
         {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
-        {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyChart={monthlyChart} />}
+        {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyStackedChart={monthlyStackedChart} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
@@ -412,10 +474,9 @@ export default function Finanzas({ session, onLogout }) {
 
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
-function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, monthlyChart, catChart, dashGroupStats }) {
+function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge }) {
   const [showScatter, setShowScatter] = useState(false)
 
-  // Build scatter data — top 5 categories by count get distinct colors, rest = grey
   const scatterData = useMemo(() => {
     if (!showScatter || expenseTxs.length === 0) return []
     const top5 = _.chain(expenseTxs).groupBy('cat').toPairs()
@@ -430,7 +491,6 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, mo
       }))
   }, [showScatter, expenseTxs])
 
-  // Group scatter dots by color so Recharts can render per-series
   const scatterSeries = useMemo(() => {
     if (!showScatter) return []
     const top5 = _.chain(expenseTxs).groupBy('cat').toPairs()
@@ -449,79 +509,73 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, mo
 
   return (
     <div>
+      {/* KPI pills */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        {[
-          { val: fmtUSD(Math.abs(totalUSD)), lbl: 'Gastos USD', color: '#c0392b' },
-          { val: fmtARS(Math.abs(totalARS)), lbl: 'Gastos ARS', color: '#c0392b' },
-          ...(periodMonths > 1 ? [{ val: fmtUSD(perMonthUSD), lbl: `Prom/mes (${periodMonths} meses)`, color: '#e67e22' }] : []),
-          { val: String(expenseTxs.length), lbl: 'Transacciones', color: '#1a1a2e' },
-        ].map(({ val, lbl, color }) => (
-          <div key={lbl} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
-            <div style={{ ...S.statVal, color }}>{val}</div>
-            <div style={S.statLbl}>{lbl}</div>
-          </div>
-        ))}
+        <div style={{ ...S.card, flex: 1.5, minWidth: 200, textAlign: 'center', marginBottom: 0 }}>
+          <div style={{ ...S.statVal, color: '#e67e22' }}>{fmtUSD(perMonthUSD)}</div>
+          <div style={S.statSub}>{fmtARS(perMonthARS)} ARS</div>
+          <div style={S.statLbl}>Prom/mes · {periodMonths} mes{periodMonths !== 1 ? 'es' : ''}</div>
+        </div>
+        <div style={{ ...S.card, flex: 1, minWidth: 150, textAlign: 'center', marginBottom: 0 }}>
+          <div style={{ ...S.statVal, color: '#1a1a2e' }}>{expenseTxs.length}</div>
+          {lastTxDate && <div style={S.statSub}>última: {lastTxDate}</div>}
+          <div style={S.statLbl}>Transacciones</div>
+        </div>
         {dashGroupStats.map(g => g.avg != null && (
-          <div key={g.id} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
+          <div key={g.id} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center', marginBottom: 0 }}>
             <div style={{ ...S.statVal, color: '#8e44ad' }}>{fmtUSD(g.avg)}</div>
+            {g.avgARS != null && <div style={S.statSub}>{fmtARS(g.avgARS)} ARS</div>}
             <div style={S.statLbl}>{g.name} / mes</div>
           </div>
         ))}
       </div>
 
-      {monthlyChart.length > 0 && (
+      {/* Stacked monthly bar chart */}
+      {monthlyStackedChart.data.length > 0 && (
         <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos por mes (USD, sin transferencias)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={monthlyChart} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <Tooltip formatter={(v) => fmtUSD(v)} />
-              <Bar dataKey="usd" fill="#1a1a2e" radius={[3, 3, 0, 0]} name="USD" />
+              <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              {monthlyStackedChart.cats.map(cat => (
+                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
+      {/* Pie chart */}
       {catChart.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ ...S.card, flex: 2, minWidth: 300 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
-                <Tooltip formatter={(v) => fmtUSD(v)} />
-                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ ...S.card, flex: 1, minWidth: 280 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={catChart}
-                  dataKey="usd"
-                  nameKey="cat"
-                  cx="50%" cy="50%"
-                  outerRadius="75%"
-                  label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
-                  labelLine={false}
-                >
-                  {catChart.map((entry) => (
-                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => fmtUSD(v)} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        <div style={S.card}>
+          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={catChart}
+                dataKey="usd"
+                nameKey="cat"
+                cx="50%" cy="50%"
+                outerRadius="65%"
+                label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
+                labelLine={false}
+              >
+                {catChart.map((entry) => (
+                  <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v) => fmtUSD(v)} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       )}
 
-      {/* Scatter — collapsible, only rendered on demand */}
+      {/* Scatter — collapsible */}
       <div style={S.card}>
         <button
           onClick={() => setShowScatter(s => !s)}
@@ -558,38 +612,33 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, mo
           </div>
         )}
       </div>
-    </div>
-  )
-}
 
-// ─── Totales ──────────────────────────────────────────────────────────────────
-
-function TotalesTab({ data, badge }) {
-  return (
-    <div style={S.card}>
-      <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Totales por categoría (sin transferencias)</h3>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={S.table}>
-          <thead>
-            <tr>
-              <th style={S.th}>Categoría</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>Txs</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map(row => (
-              <tr key={row.cat}>
-                <td style={S.td}><span style={badge(row.cat)}>{row.cat}</span></td>
-                <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
-                <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
-                <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
+      {/* Totales table — merged in */}
+      <div style={S.card}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Por categoría</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Categoría</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Txs</th>
               </tr>
-            ))}
-            {data.length === 0 && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Sin datos</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {totalesData.map(row => (
+                <tr key={row.cat}>
+                  <td style={S.td}><span style={badge(row.cat)}>{row.cat}</span></td>
+                  <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
+                </tr>
+              ))}
+              {totalesData.length === 0 && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Sin datos</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )
@@ -735,11 +784,10 @@ function RevisarTab({ txs, setTxs, badge }) {
 
 // ─── Presupuesto ──────────────────────────────────────────────────────────────
 
-function PresupuestoTab({ settings, setSettings, monthlyChart }) {
+function PresupuestoTab({ settings, setSettings, monthlyStackedChart }) {
   const [editing, setEditing] = useState(false)
   const [budget, setBudget] = useState(settings?.monthly_budget_usd ?? 0)
   const budgetUSD = settings?.monthly_budget_usd ?? 0
-  const chartData = monthlyChart.map(m => ({ ...m, presupuesto: budgetUSD || undefined }))
 
   const save = async () => {
     const val = parseFloat(budget) || 0
@@ -768,18 +816,19 @@ function PresupuestoTab({ settings, setSettings, monthlyChart }) {
         </div>
       </div>
 
-      {chartData.length > 0 && (
+      {monthlyStackedChart.data.length > 0 && (
         <div style={S.card}>
           <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos vs presupuesto (USD)</h3>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
+            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <Tooltip formatter={(v) => fmtUSD(v)} />
-              <Bar dataKey="usd" fill="#e74c3c" radius={[3, 3, 0, 0]} name="Gastos" />
-              {budgetUSD > 0 && <Line type="monotone" dataKey="presupuesto" stroke="#27ae60" strokeWidth={2} dot={false} name="Presupuesto" />}
-              <Legend />
+              <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {monthlyStackedChart.cats.map(cat => (
+                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -788,7 +837,7 @@ function PresupuestoTab({ settings, setSettings, monthlyChart }) {
   )
 }
 
-// ─── Auditoría ────────────────────────────────────────────────────────────────
+// ─── Historial IA ─────────────────────────────────────────────────────────────
 
 function AuditoriaTab({ badge }) {
   const [log, setLog] = useState(null)
@@ -798,7 +847,10 @@ function AuditoriaTab({ badge }) {
 
   return (
     <div style={S.card}>
-      <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Auditoría de categorizaciones ({log?.length ?? 0} entradas)</h3>
+      <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Historial IA ({log?.length ?? 0} entradas)</h3>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#aaa' }}>
+        Registra cada decisión de categorización: asignaciones automáticas, confirmaciones manuales y correcciones.
+      </p>
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
           <thead>
@@ -835,15 +887,13 @@ function AuditoriaTab({ badge }) {
   )
 }
 
-
-// ─── Category Groups (define groups of categories) ───────────────────────────
+// ─── Category Groups ──────────────────────────────────────────────────────────
 
 function CategoryGroupsSection({ expenseGroups, onSave }) {
   const [groups, setGroups] = useState(expenseGroups ?? [])
   const [newName, setNewName] = useState('')
   const [dirty, setDirty] = useState(false)
 
-  // Sync if parent settings load after mount
   useEffect(() => { setGroups(expenseGroups ?? []); setDirty(false) }, [expenseGroups])
 
   const update = (fn) => { setGroups(g => { const next = fn(g); setDirty(true); return next }) }
@@ -877,7 +927,8 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
             <input style={{ ...S.input, flex: 1, maxWidth: 240, fontWeight: 600 }} value={g.name}
               onChange={e => renameGroup(g.id, e.target.value)} />
             <span style={{ fontSize: 12, color: '#aaa' }}>{g.cats.length} cats</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer',
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer',
               padding: '4px 10px', borderRadius: 14,
               border: `1px solid ${g.showOnDash ? '#8e44ad' : '#ddd'}`,
               background: g.showOnDash ? '#f3e8ff' : '#fff',
@@ -915,7 +966,6 @@ function SettingsTab({ settings, onSaveExpenseGroups }) {
   return (
     <div>
       <CategoryGroupsSection expenseGroups={settings?.expense_groups ?? []} onSave={onSaveExpenseGroups} />
-
       <div style={S.card}>
         <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio histórico</h3>
         <p style={{ fontSize: 13, color: '#888', margin: 0 }}>
