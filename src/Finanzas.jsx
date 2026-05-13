@@ -148,7 +148,6 @@ export default function Finanzas({ session, onLogout }) {
   const [xferMode, setXferMode] = useState('sin') // 'sin'|'solo'|'all'
   const [catF, setCatF] = useState('all')
   const [bankF, setBankF] = useState('all')
-  const [groupF, setGroupF] = useState('all')
   const [search, setSearch] = useState('')
 
   useEffect(() => {
@@ -179,8 +178,6 @@ export default function Finanzas({ session, onLogout }) {
     return [...new Set(base.map(t => t.ym).filter(Boolean))].sort().reverse()
   }, [txs, selYears])
 
-  const groups = settings?.groups ?? []
-
   const filtered = useMemo(() => txs.filter(t => {
     if (selYears.length && !selYears.includes(t.year)) return false
     if (selYm && t.ym !== selYm) return false
@@ -188,15 +185,13 @@ export default function Finanzas({ session, onLogout }) {
     if (xferMode === 'solo' && !t.xfer) return false
     if (catF !== 'all' && t.cat !== catF) return false
     if (bankF !== 'all' && t.bank !== bankF) return false
-    if (groupF === 'none' && t.group_id) return false
-    if (groupF !== 'all' && groupF !== 'none' && t.group_id !== groupF) return false
     if (search) {
       const q = search.toLowerCase()
       if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
             t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [txs, selYears, selYm, xferMode, catF, bankF, groupF, search])
+  }), [txs, selYears, selYm, xferMode, catF, bankF, search])
 
   // Expense KPIs always exclude transfers regardless of xferMode
   // ars may be null for USD-only banks (e.g. Citibank) -- fall back to usd sign
@@ -293,28 +288,7 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
-  const updateGroup = async (id, gid) => {
-    await updateTransaction(id, { group_id: gid || null })
-    setTxs(prev => prev.map(t => t.id === id ? { ...t, group_id: gid || null } : t))
-  }
-  const addGroup = async (name) => {
-    const ng = [...groups, { id: crypto.randomUUID(), name, categories: [] }]
-    await saveSettings({ groups: ng }); setSettings(s => ({ ...s, groups: ng }))
-  }
-  const renameGroup = async (id, name) => {
-    const ng = groups.map(g => g.id === id ? { ...g, name } : g)
-    await saveSettings({ groups: ng }); setSettings(s => ({ ...s, groups: ng }))
-  }
-  const deleteGroup = async (id) => {
-    if (!confirm('¿Eliminar este grupo?')) return
-    const ng = groups.filter(g => g.id !== id)
-    await saveSettings({ groups: ng }); setSettings(s => ({ ...s, groups: ng }))
-    const affected = txs.filter(t => t.group_id === id)
-    await Promise.all(affected.map(t => updateTransaction(t.id, { group_id: null })))
-    setTxs(prev => prev.map(t => t.group_id === id ? { ...t, group_id: null } : t))
-  }
-
-  const resetFilters = () => { setSelYears([]); setSelYm(''); setXferMode('sin'); setCatF('all'); setBankF('all'); setGroupF('all'); setSearch('') }
+  const resetFilters = () => { setSelYears([]); setSelYm(''); setXferMode('sin'); setCatF('all'); setBankF('all'); setSearch('') }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
   if (loadErr) return <div style={{ padding: 32, color: '#c00', fontFamily: 'sans-serif' }}>Error: {loadErr}</div>
@@ -378,14 +352,6 @@ export default function Finanzas({ session, onLogout }) {
               </select>
             </div>
             <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Grupo</span>
-              <select style={S.select} value={groupF} onChange={e => setGroupF(e.target.value)}>
-                <option value="all">Todos</option>
-                <option value="none">Sin grupo</option>
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </div>
-            <div style={S.filterGroup}>
               <span style={S.filterLabel}>Banco</span>
               <select style={S.select} value={bankF} onChange={e => setBankF(e.target.value)}>
                 <option value="all">Todos</option>
@@ -404,13 +370,12 @@ export default function Finanzas({ session, onLogout }) {
 
         {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} selYm={selYm} monthlyChart={monthlyChart} catChart={catChart} monthlyExpenseAvg={monthlyExpenseAvg} expenseGroupCats={expenseGroupCats} />}
         {activeTab === 'totales' && <TotalesTab data={totalesData} badge={badge} />}
-        {activeTab === 'txs' && <TxsTab txs={filtered} groups={groups} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} onGroupChange={updateGroup} badge={badge} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
         {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyChart={monthlyChart} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'settings' && <SettingsTab
-          settings={settings} groups={groups}
-          onAddGroup={addGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup}
+          settings={settings}
           onSaveExpenseGroups={async (eg) => { await saveSettings({ expense_groups: eg }); setSettings(s => ({ ...s, expense_groups: eg })) }}
           onSaveMonthlySelection={async (sel) => { await saveSettings({ monthly_expense_selection: sel }); setSettings(s => ({ ...s, monthly_expense_selection: sel })) }}
         />}
@@ -580,7 +545,7 @@ function TotalesTab({ data, badge }) {
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, groups, onCatChange, onNoteChange, onDelete, onGroupChange, badge }) {
+function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
   const [editNote, setEditNote] = useState(null)
   const [page, setPage] = useState(1)
   const PAGE = 100
@@ -600,7 +565,6 @@ function TxsTab({ txs, groups, onCatChange, onNoteChange, onDelete, onGroupChang
               <th style={S.th}>Categoría</th>
               <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
-              <th style={S.th}>Grupo</th>
               <th style={S.th}>Notas</th>
               <th style={S.th}></th>
             </tr>
@@ -622,12 +586,6 @@ function TxsTab({ txs, groups, onCatChange, onNoteChange, onDelete, onGroupChang
                 </td>
                 <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>{fmtARS(tx.ars)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>{fmtUSD(tx.usd)}</td>
-                <td style={S.td}>
-                  <select value={tx.group_id || ''} onChange={e => onGroupChange(tx.id, e.target.value)} style={{ ...S.select, maxWidth: 130, fontSize: 12 }}>
-                    <option value="">—</option>
-                    {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </td>
                 <td style={S.td}>
                   {editNote?.id === tx.id ? (
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -990,52 +948,9 @@ function MonthlyExpenseSection({ expenseGroups, selection, onSave }) {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-function SettingsTab({ settings, groups, onAddGroup, onRenameGroup, onDeleteGroup, onSaveExpenseGroups, onSaveMonthlySelection }) {
-  const [newName, setNewName] = useState('')
-  const [renaming, setRenaming] = useState(null) // { id, name }
-
-  const handleAdd = async () => {
-    const name = newName.trim(); if (!name) return
-    await onAddGroup(name); setNewName('')
-  }
-  const handleRename = async () => {
-    if (!renaming) return
-    await onRenameGroup(renaming.id, renaming.name); setRenaming(null)
-  }
-
+function SettingsTab({ settings, onSaveExpenseGroups, onSaveMonthlySelection }) {
   return (
     <div>
-      <div style={S.card}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Grupos de transacciones</h3>
-        <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px' }}>
-          Agrupá transacciones de distintas categorías para filtrarlas juntas. Asignás grupos desde la tabla de transacciones.
-        </p>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <input style={{ ...S.input, flex: 1, maxWidth: 280 }} placeholder="Nombre del grupo…" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()} />
-          <button style={S.btn()} onClick={handleAdd}>Agregar</button>
-        </div>
-        {!groups.length && <p style={{ color: '#aaa', fontSize: 13 }}>Todavía no hay grupos.</p>}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {groups.map(g => (
-            <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8f8f8', borderRadius: 8 }}>
-              {renaming?.id === g.id ? (
-                <>
-                  <input style={{ ...S.input, flex: 1, maxWidth: 240 }} value={renaming.name} onChange={e => setRenaming({ ...renaming, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setRenaming(null) }} autoFocus />
-                  <button style={S.btn()} onClick={handleRename}>Guardar</button>
-                  <button style={S.btn('secondary')} onClick={() => setRenaming(null)}>Cancelar</button>
-                </>
-              ) : (
-                <>
-                  <span style={{ flex: 1, fontWeight: 500 }}>{g.name}</span>
-                  <button style={S.btnSm()} onClick={() => setRenaming({ id: g.id, name: g.name })}>✏ Renombrar</button>
-                  <button style={{ ...S.btnSm('danger') }} onClick={() => onDeleteGroup(g.id)}>✕ Eliminar</button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
       <CategoryGroupsSection expenseGroups={settings?.expense_groups ?? []} onSave={onSaveExpenseGroups} />
       <MonthlyExpenseSection
         expenseGroups={settings?.expense_groups ?? []}
