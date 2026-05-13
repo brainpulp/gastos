@@ -21,7 +21,7 @@ export const CATS = [
   'Delta', 'Dining', 'El Dorado', 'Entertainment', 'Food', 'Gas', 'Gifts',
   'Healthcare', 'Home utilities',
   'Interbank incoming', 'Interbank outgoing', 'Legal fees', 'Loans given',
-  'Mocoreta', 'Must trace', 'Personal', 'pets', 'Proyectos',
+  'Mocoreta', 'Must trace', 'Personal', 'pets',
   'Puente to Santander', 'Roca deptos', 'Shopping', 'sports and exercise',
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
@@ -198,22 +198,21 @@ export default function Finanzas({ session, onLogout }) {
   const expenseTxs = useMemo(() => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)), [filtered])
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
-  // Monthly expense KPI — derived from monthly_expense_selection (groups + individual cats)
-  const expenseGroupCats = useMemo(() => {
-    const sel = settings?.monthly_expense_selection ?? { groups: [], cats: [] }
+  // Per-group dashboard KPIs — one entry per group with showOnDash: true
+  const dashGroupStats = useMemo(() => {
     const eg = settings?.expense_groups ?? []
-    const fromGroups = eg.filter(g => sel.groups?.includes(g.id)).flatMap(g => g.cats ?? [])
-    return new Set([...fromGroups, ...(sel.cats ?? [])])
-  }, [settings])
-  const monthlyExpenseTxs = useMemo(
-    () => expenseTxs.filter(t => expenseGroupCats.has(t.cat)),
-    [expenseTxs, expenseGroupCats]
-  )
-  const monthlyExpenseAvg = useMemo(() => {
-    if (!monthlyExpenseTxs.length) return null
-    const months = [...new Set(monthlyExpenseTxs.map(t => t.ym).filter(Boolean))].length || 1
-    return Math.abs(monthlyExpenseTxs.reduce((s, t) => s + (+t.usd || 0), 0)) / months
-  }, [monthlyExpenseTxs])
+    return eg
+      .filter(g => g.showOnDash && g.cats?.length)
+      .map(g => {
+        const catSet = new Set(g.cats)
+        const gTxs = expenseTxs.filter(t => catSet.has(t.cat))
+        const months = [...new Set(gTxs.map(t => t.ym).filter(Boolean))].length || 1
+        const avg = gTxs.length
+          ? Math.abs(gTxs.reduce((s, t) => s + (+t.usd || 0), 0)) / months
+          : null
+        return { id: g.id, name: g.name, avg }
+      })
+  }, [settings, expenseTxs])
 
   const periodMonths = useMemo(() => {
     if (selYm) return 1
@@ -368,7 +367,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} selYm={selYm} monthlyChart={monthlyChart} catChart={catChart} monthlyExpenseAvg={monthlyExpenseAvg} expenseGroupCats={expenseGroupCats} />}
+        {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} selYm={selYm} monthlyChart={monthlyChart} catChart={catChart} dashGroupStats={dashGroupStats} />}
         {activeTab === 'totales' && <TotalesTab data={totalesData} badge={badge} />}
         {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
@@ -377,7 +376,6 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
           onSaveExpenseGroups={async (eg) => { await saveSettings({ expense_groups: eg }); setSettings(s => ({ ...s, expense_groups: eg })) }}
-          onSaveMonthlySelection={async (sel) => { await saveSettings({ monthly_expense_selection: sel }); setSettings(s => ({ ...s, monthly_expense_selection: sel })) }}
         />}
       </div>
     </div>
@@ -388,7 +386,7 @@ export default function Finanzas({ session, onLogout }) {
 
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
-function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, selYm, monthlyChart, catChart, monthlyExpenseAvg, expenseGroupCats }) {
+function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, selYm, monthlyChart, catChart, dashGroupStats }) {
   const [showScatter, setShowScatter] = useState(false)
 
   // Build scatter data — top 5 categories by count get distinct colors, rest = grey
@@ -431,11 +429,16 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, se
           { val: fmtARS(Math.abs(totalARS)), lbl: 'Gastos (ARS, sin xfers)', color: '#c0392b' },
           ...(!selYm && periodMonths > 1 ? [{ val: fmtUSD(perMonthUSD), lbl: `Prom/mes (${periodMonths} meses)`, color: '#e67e22' }] : []),
           { val: String(expenseTxs.length), lbl: 'Transacciones (sin xfers)', color: '#1a1a2e' },
-          ...(monthlyExpenseAvg != null ? [{ val: fmtUSD(monthlyExpenseAvg), lbl: `Gasto mensual (${expenseGroupCats.size} cats)`, color: '#8e44ad' }] : []),
         ].map(({ val, lbl, color }) => (
           <div key={lbl} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
             <div style={{ ...S.statVal, color }}>{val}</div>
             <div style={S.statLbl}>{lbl}</div>
+          </div>
+        ))}
+        {dashGroupStats.map(g => g.avg != null && (
+          <div key={g.id} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
+            <div style={{ ...S.statVal, color: '#8e44ad' }}>{fmtUSD(g.avg)}</div>
+            <div style={S.statLbl}>{g.name} / mes</div>
           </div>
         ))}
       </div>
@@ -797,7 +800,7 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
   const update = (fn) => { setGroups(g => { const next = fn(g); setDirty(true); return next }) }
   const addGroup = () => {
     const name = newName.trim(); if (!name) return
-    update(g => [...g, { id: crypto.randomUUID(), name, cats: [] }])
+    update(g => [...g, { id: crypto.randomUUID(), name, cats: [], showOnDash: false }])
     setNewName('')
   }
   const removeGroup = (id) => update(g => g.filter(x => x.id !== id))
@@ -805,12 +808,13 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
   const toggleCat = (id, cat) => update(g => g.map(x => x.id === id
     ? { ...x, cats: x.cats.includes(cat) ? x.cats.filter(c => c !== cat) : [...x.cats, cat] }
     : x))
+  const toggleDash = (id) => update(g => g.map(x => x.id === id ? { ...x, showOnDash: !x.showOnDash } : x))
 
   return (
     <div style={S.card}>
       <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Grupos de categorías</h3>
       <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px' }}>
-        Agrupá categorías bajo un nombre. Los grupos se pueden usar en el selector de Gasto mensual.
+        Agrupá categorías bajo un nombre. Activá 📊 Dashboard para que ese grupo aparezca como KPI en el panel principal.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input style={{ ...S.input, flex: 1, maxWidth: 280 }} placeholder="Nombre del grupo…"
@@ -820,11 +824,21 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
       </div>
       {groups.map(g => (
         <div key={g.id} style={{ marginBottom: 12, padding: '10px 14px', background: '#f8f8f8', borderRadius: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input style={{ ...S.input, flex: 1, maxWidth: 240, fontWeight: 600 }} value={g.name}
               onChange={e => renameGroup(g.id, e.target.value)} />
-            <span style={{ fontSize: 12, color: '#aaa' }}>{g.cats.length} categorías</span>
-            <button style={S.btnSm('danger')} onClick={() => removeGroup(g.id)}>✕ Eliminar</button>
+            <span style={{ fontSize: 12, color: '#aaa' }}>{g.cats.length} cats</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer',
+              padding: '4px 10px', borderRadius: 14,
+              border: `1px solid ${g.showOnDash ? '#8e44ad' : '#ddd'}`,
+              background: g.showOnDash ? '#f3e8ff' : '#fff',
+              color: g.showOnDash ? '#8e44ad' : '#888',
+              userSelect: 'none',
+            }}>
+              <input type="checkbox" checked={!!g.showOnDash} onChange={() => toggleDash(g.id)} style={{ accentColor: '#8e44ad' }} />
+              📊 Dashboard
+            </label>
+            <button style={S.btnSm('danger')} onClick={() => removeGroup(g.id)}>✕</button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
             {CATS.map(cat => (
@@ -846,117 +860,12 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
   )
 }
 
-// ─── Monthly Expense Selector ─────────────────────────────────────────────────
-
-function MonthlyExpenseSection({ expenseGroups, selection, onSave }) {
-  const [sel, setSel] = useState(selection ?? { groups: [], cats: [] })
-  const [dirty, setDirty] = useState(false)
-
-  useEffect(() => { setSel(selection ?? { groups: [], cats: [] }); setDirty(false) }, [selection])
-
-  const toggleGroup = (id) => {
-    setSel(s => {
-      const groups = s.groups.includes(id) ? s.groups.filter(x => x !== id) : [...s.groups, id]
-      setDirty(true)
-      return { ...s, groups }
-    })
-  }
-  const toggleCat = (cat) => {
-    setSel(s => {
-      const cats = s.cats.includes(cat) ? s.cats.filter(x => x !== cat) : [...s.cats, cat]
-      setDirty(true)
-      return { ...s, cats }
-    })
-  }
-
-  // Cats already covered by a selected group
-  const coveredByCats = new Set(
-    expenseGroups.filter(g => sel.groups.includes(g.id)).flatMap(g => g.cats)
-  )
-  // Individual cats = all cats not already in any group definition
-  const groupedCats = new Set(expenseGroups.flatMap(g => g.cats))
-  const ungroupedCats = CATS.filter(c => !groupedCats.has(c))
-
-  const totalCats = new Set([
-    ...expenseGroups.filter(g => sel.groups.includes(g.id)).flatMap(g => g.cats),
-    ...sel.cats,
-  ]).size
-
-  return (
-    <div style={S.card}>
-      <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Gasto mensual</h3>
-      <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px' }}>
-        Elegí qué grupos y/o categorías sueltas se suman al KPI "Gasto mensual" del dashboard.
-        {totalCats > 0 && <strong style={{ color: '#1a1a2e', marginLeft: 6 }}>{totalCats} categorías activas</strong>}
-      </p>
-
-      {expenseGroups.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>Grupos</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {expenseGroups.map(g => {
-              const checked = sel.groups.includes(g.id)
-              return (
-                <label key={g.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  borderRadius: 20, border: `1px solid ${checked ? '#1a1a2e' : '#ddd'}`,
-                  background: checked ? '#1a1a2e' : '#fff', color: checked ? '#fff' : '#333',
-                  fontSize: 13, cursor: 'pointer', userSelect: 'none',
-                }}>
-                  <input type="checkbox" checked={checked} onChange={() => toggleGroup(g.id)} style={{ display: 'none' }} />
-                  {g.name}
-                  <span style={{ fontSize: 11, opacity: 0.7 }}>({g.cats.length})</span>
-                </label>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>
-          {expenseGroups.length > 0 ? 'Categorías sueltas' : 'Categorías'}
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-          {(expenseGroups.length > 0 ? ungroupedCats : CATS).map(cat => {
-            const inGroup = coveredByCats.has(cat)
-            const checked = sel.cats.includes(cat) || inGroup
-            return (
-              <label key={cat} style={{
-                display: 'flex', alignItems: 'center', gap: 4, fontSize: 12,
-                cursor: inGroup ? 'default' : 'pointer', opacity: inGroup ? 0.45 : 1,
-              }}>
-                <input type="checkbox" checked={checked} disabled={inGroup} onChange={() => !inGroup && toggleCat(cat)} />
-                {cat}
-              </label>
-            )
-          })}
-        </div>
-        {expenseGroups.length > 0 && ungroupedCats.length === 0 && (
-          <p style={{ color: '#aaa', fontSize: 12, marginTop: 4 }}>Todas las categorías están en algún grupo.</p>
-        )}
-      </div>
-
-      {dirty && (
-        <button style={{ ...S.btn(), marginTop: 16 }} onClick={() => { onSave(sel); setDirty(false) }}>
-          💾 Guardar selección
-        </button>
-      )}
-    </div>
-  )
-}
-
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-function SettingsTab({ settings, onSaveExpenseGroups, onSaveMonthlySelection }) {
+function SettingsTab({ settings, onSaveExpenseGroups }) {
   return (
     <div>
       <CategoryGroupsSection expenseGroups={settings?.expense_groups ?? []} onSave={onSaveExpenseGroups} />
-      <MonthlyExpenseSection
-        expenseGroups={settings?.expense_groups ?? []}
-        selection={settings?.monthly_expense_selection}
-        onSave={onSaveMonthlySelection}
-      />
 
       <div style={S.card}>
         <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio histórico</h3>
