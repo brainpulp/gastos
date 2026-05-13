@@ -22,13 +22,22 @@ function normalizeTx(tx, userId) {
 
 /** Load all non-deleted transactions for the current user */
 export async function loadTransactions() {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .is('deleted_at', null)
-    .order('date', { ascending: false })
-  if (error) throw error
-  return data
+  const PAGE = 2000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .is('deleted_at', null)
+      .order('date', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
 /** Upsert an array of transactions (from upload or manual add).
