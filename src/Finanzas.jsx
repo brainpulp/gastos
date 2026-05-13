@@ -130,6 +130,52 @@ function YearFilter({ years, selected, onChange }) {
   )
 }
 
+// ─── Multi-select filter dropdown ────────────────────────────────────────────
+
+function MultiSelectFilter({ label, options, selected, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+  const toggle = val => onChange(selected.includes(val) ? selected.filter(x => x !== val) : [...selected, val])
+  return (
+    <div style={{ ...S.filterGroup, position: 'relative' }} ref={ref}>
+      <span style={S.filterLabel}>{label}</span>
+      <button onClick={() => setOpen(o => !o)} style={{
+        ...S.select, textAlign: 'left', cursor: 'pointer', minWidth: 130,
+        background: selected.length ? '#1a1a2e' : '#fff',
+        color: selected.length ? '#fff' : '#333',
+      }}>
+        {selected.length === 0 ? `Todas ▾` : `${selected.length} sel. ▾`}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 200,
+          background: '#fff', border: '1px solid #ddd', borderRadius: 8,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.13)', padding: '6px 0',
+          minWidth: 200, maxHeight: 300, overflowY: 'auto',
+        }}>
+          {selected.length > 0 && (
+            <div style={{ padding: '4px 12px 6px', borderBottom: '1px solid #f0f0f0' }}>
+              <button style={{ fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                onClick={() => onChange([])}>✕ Limpiar</button>
+            </div>
+          )}
+          {options.map(opt => (
+            <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none' }}>
+              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
+              {opt}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Finanzas({ session, onLogout }) {
@@ -144,10 +190,11 @@ export default function Finanzas({ session, onLogout }) {
 
   // Filters
   const [selYears, setSelYears] = useState([])
-  const [selYm, setSelYm] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [xferMode, setXferMode] = useState('sin') // 'sin'|'solo'|'all'
-  const [catF, setCatF] = useState('all')
-  const [bankF, setBankF] = useState('all')
+  const [catFs, setCatFs] = useState([])
+  const [bankFs, setBankFs] = useState([])
   const [search, setSearch] = useState('')
 
   useEffect(() => {
@@ -173,25 +220,21 @@ export default function Finanzas({ session, onLogout }) {
     () => [...new Set(txs.map(t => t.year).filter(Boolean))].sort((a, b) => b - a),
     [txs]
   )
-  const availYms = useMemo(() => {
-    const base = selYears.length ? txs.filter(t => selYears.includes(t.year)) : txs
-    return [...new Set(base.map(t => t.ym).filter(Boolean))].sort().reverse()
-  }, [txs, selYears])
-
   const filtered = useMemo(() => txs.filter(t => {
     if (selYears.length && !selYears.includes(t.year)) return false
-    if (selYm && t.ym !== selYm) return false
+    if (dateFrom && t.date < dateFrom) return false
+    if (dateTo && t.date > dateTo) return false
     if (xferMode === 'sin' && t.xfer) return false
     if (xferMode === 'solo' && !t.xfer) return false
-    if (catF !== 'all' && t.cat !== catF) return false
-    if (bankF !== 'all' && t.bank !== bankF) return false
+    if (catFs.length && !catFs.includes(t.cat)) return false
+    if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (search) {
       const q = search.toLowerCase()
       if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
             t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
     }
     return true
-  }), [txs, selYears, selYm, xferMode, catF, bankF, search])
+  }), [txs, selYears, dateFrom, dateTo, xferMode, catFs, bankFs, search])
 
   // Expense KPIs always exclude transfers regardless of xferMode
   // ars may be null for USD-only banks (e.g. Citibank) -- fall back to usd sign
@@ -215,9 +258,8 @@ export default function Finanzas({ session, onLogout }) {
   }, [settings, expenseTxs])
 
   const periodMonths = useMemo(() => {
-    if (selYm) return 1
     return [...new Set(expenseTxs.map(t => t.ym).filter(Boolean))].length || 1
-  }, [expenseTxs, selYm])
+  }, [expenseTxs])
   const perMonthUSD = useMemo(() => Math.abs(totalUSD) / periodMonths, [totalUSD, periodMonths])
 
   const monthlyChart = useMemo(() => {
@@ -287,7 +329,7 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
-  const resetFilters = () => { setSelYears([]); setSelYm(''); setXferMode('sin'); setCatF('all'); setBankF('all'); setSearch('') }
+  const resetFilters = () => { setSelYears([]); setDateFrom(''); setDateTo(''); setXferMode('sin'); setCatFs([]); setBankFs([]); setSearch('') }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
   if (loadErr) return <div style={{ padding: 32, color: '#c00', fontFamily: 'sans-serif' }}>Error: {loadErr}</div>
@@ -329,10 +371,11 @@ export default function Finanzas({ session, onLogout }) {
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
-              <select style={S.select} value={selYm} onChange={e => setSelYm(e.target.value)}>
-                <option value="">Todos los meses</option>
-                {availYms.map(ym => <option key={ym} value={ym}>{ym}</option>)}
-              </select>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <input type="date" style={{ ...S.input, width: 130 }} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                <span style={{ fontSize: 12, color: '#aaa' }}>→</span>
+                <input type="date" style={{ ...S.input, width: 130 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
+              </div>
             </div>
             <YearFilter years={availYears} selected={selYears} onChange={setSelYears} />
             <div style={S.filterGroup}>
@@ -343,20 +386,8 @@ export default function Finanzas({ session, onLogout }) {
                 <option value="solo">Solo transferencias</option>
               </select>
             </div>
-            <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Categoría</span>
-              <select style={S.select} value={catF} onChange={e => setCatF(e.target.value)}>
-                <option value="all">Todas</option>
-                {CATS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Banco</span>
-              <select style={S.select} value={bankF} onChange={e => setBankF(e.target.value)}>
-                <option value="all">Todos</option>
-                {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
-            </div>
+            <MultiSelectFilter label="Categoría" options={CATS} selected={catFs} onChange={setCatFs} />
+            <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
               <span style={S.filterLabel}>Buscar</span>
               <input style={{ ...S.input, width: '100%' }} placeholder="descripción, comercio, notas…" value={search} onChange={e => setSearch(e.target.value)} />
@@ -367,7 +398,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} selYm={selYm} monthlyChart={monthlyChart} catChart={catChart} dashGroupStats={dashGroupStats} />}
+        {activeTab === 'dash' && <DashTab expenseTxs={expenseTxs} totalUSD={totalUSD} totalARS={totalARS} perMonthUSD={perMonthUSD} periodMonths={periodMonths} monthlyChart={monthlyChart} catChart={catChart} dashGroupStats={dashGroupStats} />}
         {activeTab === 'totales' && <TotalesTab data={totalesData} badge={badge} />}
         {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
@@ -386,7 +417,7 @@ export default function Finanzas({ session, onLogout }) {
 
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
-function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, selYm, monthlyChart, catChart, dashGroupStats }) {
+function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, monthlyChart, catChart, dashGroupStats }) {
   const [showScatter, setShowScatter] = useState(false)
 
   // Build scatter data — top 5 categories by count get distinct colors, rest = grey
@@ -427,7 +458,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, se
         {[
           { val: fmtUSD(Math.abs(totalUSD)), lbl: 'Gastos (USD, sin xfers)', color: '#c0392b' },
           { val: fmtARS(Math.abs(totalARS)), lbl: 'Gastos (ARS, sin xfers)', color: '#c0392b' },
-          ...(!selYm && periodMonths > 1 ? [{ val: fmtUSD(perMonthUSD), lbl: `Prom/mes (${periodMonths} meses)`, color: '#e67e22' }] : []),
+          ...(periodMonths > 1 ? [{ val: fmtUSD(perMonthUSD), lbl: `Prom/mes (${periodMonths} meses)`, color: '#e67e22' }] : []),
           { val: String(expenseTxs.length), lbl: 'Transacciones (sin xfers)', color: '#1a1a2e' },
         ].map(({ val, lbl, color }) => (
           <div key={lbl} style={{ ...S.card, flex: 1, minWidth: 160, textAlign: 'center' }}>
