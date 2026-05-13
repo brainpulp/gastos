@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend, CartesianGrid,
   ScatterChart, Scatter, ZAxis,
+  PieChart, Pie, Cell,
 } from 'recharts'
 import _ from 'lodash'
 import * as XLSX from 'xlsx'
@@ -132,7 +133,7 @@ function YearFilter({ years, selected, onChange }) {
 
 // ─── Multi-select filter dropdown ────────────────────────────────────────────
 
-function MultiSelectFilter({ label, options, selected, onChange }) {
+function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -140,7 +141,20 @@ function MultiSelectFilter({ label, options, selected, onChange }) {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
   const toggle = val => onChange(selected.includes(val) ? selected.filter(x => x !== val) : [...selected, val])
+
+  const groupAllSelected = g => g.cats.length > 0 && g.cats.every(c => selected.includes(c))
+  const groupSomeSelected = g => g.cats.some(c => selected.includes(c))
+  const toggleGroup = g => {
+    if (groupAllSelected(g)) onChange(selected.filter(c => !g.cats.includes(c)))
+    else onChange([...new Set([...selected, ...g.cats])])
+  }
+
+  // cats that belong to any group (shown under groups section)
+  const groupedCatSet = new Set(groups.flatMap(g => g.cats))
+  const ungroupedOptions = options.filter(o => !groupedCatSet.has(o))
+
   return (
     <div style={{ ...S.filterGroup, position: 'relative' }} ref={ref}>
       <span style={S.filterLabel}>{label}</span>
@@ -156,7 +170,7 @@ function MultiSelectFilter({ label, options, selected, onChange }) {
           position: 'absolute', top: '100%', left: 0, zIndex: 200,
           background: '#fff', border: '1px solid #ddd', borderRadius: 8,
           boxShadow: '0 4px 20px rgba(0,0,0,0.13)', padding: '6px 0',
-          minWidth: 200, maxHeight: 300, overflowY: 'auto',
+          minWidth: 220, maxHeight: 340, overflowY: 'auto',
         }}>
           {selected.length > 0 && (
             <div style={{ padding: '4px 12px 6px', borderBottom: '1px solid #f0f0f0' }}>
@@ -164,7 +178,21 @@ function MultiSelectFilter({ label, options, selected, onChange }) {
                 onClick={() => onChange([])}>✕ Limpiar</button>
             </div>
           )}
-          {options.map(opt => (
+          {groups.length > 0 && <>
+            <div style={{ padding: '6px 12px 3px', fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.06em' }}>Grupos</div>
+            {groups.map(g => (
+              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none', background: groupSomeSelected(g) ? '#f3e8ff' : 'transparent' }}>
+                <input type="checkbox" checked={groupAllSelected(g)}
+                  ref={el => { if (el) el.indeterminate = groupSomeSelected(g) && !groupAllSelected(g) }}
+                  onChange={() => toggleGroup(g)} />
+                <span style={{ fontWeight: 600 }}>{g.name}</span>
+                <span style={{ fontSize: 11, color: '#aaa', marginLeft: 'auto' }}>{g.cats.length}</span>
+              </label>
+            ))}
+            <div style={{ margin: '4px 0', borderTop: '1px solid #f0f0f0' }} />
+            <div style={{ padding: '4px 12px 3px', fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.06em' }}>Categorías</div>
+          </>}
+          {ungroupedOptions.map(opt => (
             <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none' }}>
               <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
               {opt}
@@ -386,7 +414,7 @@ export default function Finanzas({ session, onLogout }) {
                 <option value="solo">Solo transferencias</option>
               </select>
             </div>
-            <MultiSelectFilter label="Categoría" options={CATS} selected={catFs} onChange={setCatFs} />
+            <MultiSelectFilter label="Categoría" options={CATS} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
             <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
               <span style={S.filterLabel}>Buscar</span>
@@ -490,16 +518,39 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, periodMonths, mo
       )}
 
       {catChart.length > 0 && (
-        <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
-              <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
-              <Tooltip formatter={(v) => fmtUSD(v)} />
-              <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD" />
-            </BarChart>
-          </ResponsiveContainer>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ ...S.card, flex: 2, minWidth: 300 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
+                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
+                <Tooltip formatter={(v) => fmtUSD(v)} />
+                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div style={{ ...S.card, flex: 1, minWidth: 280 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie
+                  data={catChart}
+                  dataKey="usd"
+                  nameKey="cat"
+                  cx="50%" cy="50%"
+                  outerRadius="75%"
+                  label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
+                  labelLine={false}
+                >
+                  {catChart.map((entry) => (
+                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => fmtUSD(v)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
