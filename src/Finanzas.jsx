@@ -674,9 +674,10 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
             {visible.map(tx => (
               <tr key={tx.id} style={{ background: tx.xfer ? '#f5f5ff' : undefined }}>
                 <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>{tx.date}</td>
-                <td style={{ ...S.td, maxWidth: 240 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>{tx.merchant || tx.raw_desc?.slice(0, 60)}</div>
-                  {tx.merchant && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.raw_desc?.slice(0, 80)}</div>}
+                <td style={{ ...S.td, maxWidth: 280 }}>
+                  {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
+                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
+                  {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                   {tx.xfer && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, marginTop: 2, display: 'block' }}>TRANSFERENCIA</span>}
                 </td>
                 <td style={S.td}>
@@ -755,9 +756,10 @@ function RevisarTab({ txs, setTxs, badge }) {
             {queue.map(tx => (
               <tr key={tx.id}>
                 <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{tx.date}</td>
-                <td style={S.td}>
-                  <div style={{ fontWeight: 500 }}>{tx.merchant || '—'}</div>
-                  <div style={{ fontSize: 11, color: '#aaa' }}>{tx.raw_desc?.slice(0, 80)}</div>
+                <td style={{ ...S.td, maxWidth: 280 }}>
+                  {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
+                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
+                  {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                 </td>
                 <td style={S.td}>
                   {tx.cat ? <span style={badge(tx.cat)}>{tx.cat}</span> : <span style={{ color: '#aaa' }}>—</span>}
