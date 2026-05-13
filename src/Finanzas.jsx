@@ -21,7 +21,7 @@ export const CATS = [
   'Delta', 'Dining', 'El Dorado', 'Entertainment', 'Food', 'Gas', 'Gifts',
   'Healthcare', 'Home utilities',
   'Interbank incoming', 'Interbank outgoing', 'Legal fees', 'Loans given',
-  'Mocoreta', 'Must trace', 'Personal', 'pets',
+  'Mocoreta', 'Must trace', 'pets',
   'Puente to Santander', 'Roca deptos', 'Shopping', 'sports and exercise',
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
