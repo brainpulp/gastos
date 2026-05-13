@@ -22,7 +22,7 @@ function normalizeTx(tx, userId) {
 
 /** Load all non-deleted transactions for the current user */
 export async function loadTransactions() {
-  const PAGE = 2000
+  const PAGE = 1000
   let all = []
   let from = 0
   while (true) {
