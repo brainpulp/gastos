@@ -677,13 +677,12 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
           </thead>
           <tbody>
             {visible.map(tx => (
-              <tr key={tx.id} style={{ background: tx.xfer ? '#f5f5ff' : undefined }}>
+              <tr key={tx.id}>
                 <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>{tx.date}</td>
                 <td style={{ ...S.td, maxWidth: 280 }}>
                   {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
                   {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
                   {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
-                  {tx.xfer && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, marginTop: 2, display: 'block' }}>TRANSFERENCIA</span>}
                 </td>
                 <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>{tx.bank || '—'}</td>
                 <td style={S.td}>
