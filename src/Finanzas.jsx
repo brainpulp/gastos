@@ -391,13 +391,16 @@ export default function Finanzas({ session, onLogout }) {
     window.location.hash = 'txs'
   }
 
-  const updateCat = async (id, cat) => {
-    await updateTransaction(id, { cat, ai_assigned: false })
-    setTxs(prev => prev.map(t => t.id === id ? { ...t, cat } : t))
+  const goToCat = (cat) => {
+    if (!cat) return
+    setCatFs([cat])
+    setActiveTab('txs')
+    window.location.hash = 'txs'
   }
-  const updateNote = async (id, notes) => {
-    await updateTransaction(id, { notes })
-    setTxs(prev => prev.map(t => t.id === id ? { ...t, notes } : t))
+
+  const updateTx = async (id, changes) => {
+    await updateTransaction(id, changes)
+    setTxs(prev => prev.map(t => t.id === id ? { ...t, ...changes } : t))
   }
   const deleteTx = async (id) => {
     if (!confirm('¿Ocultar esta transacción? (soft delete — no se pierde el historial)')) return
@@ -516,9 +519,10 @@ export default function Finanzas({ session, onLogout }) {
             totalesData={totalesData}
             badge={badge}
             onMonthClick={goToMonth}
+            onCatClick={goToCat}
           />
         )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} badge={badge} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
         {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyStackedChart={monthlyStackedChart} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
@@ -535,7 +539,7 @@ export default function Finanzas({ session, onLogout }) {
 
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
-function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge, onMonthClick }) {
+function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge, onMonthClick, onCatClick }) {
   const [showScatter, setShowScatter] = useState(false)
 
   const scatterData = useMemo(() => {
@@ -617,9 +621,12 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
       {catChart.length > 0 && (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ ...S.card, flex: 2, minWidth: 300, marginBottom: 0 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
+              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}
+                style={{ cursor: 'pointer' }}
+                onClick={({ activePayload }) => { if (activePayload?.[0]?.payload?.cat) onCatClick(activePayload[0].payload.cat) }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
                 <Tooltip formatter={(v) => fmtUSD(v)} />
@@ -628,7 +635,8 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
             </ResponsiveContainer>
           </div>
           <div style={{ ...S.card, flex: 1, minWidth: 280, marginBottom: 0 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie
@@ -639,6 +647,8 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
                   outerRadius="65%"
                   label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
                   labelLine={false}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }}
                 >
                   {catChart.map((entry) => (
                     <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
@@ -723,8 +733,9 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
-  const [editNote, setEditNote] = useState(null)
+function TxsTab({ txs, onUpdate, onDelete, badge }) {
+  const [editingId, setEditingId] = useState(null)
+  const [editState, setEditState] = useState({})
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
   const PAGE = 100
@@ -743,6 +754,39 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
 
   const visible = sorted.slice(0, page * PAGE)
 
+  const startEdit = (tx) => {
+    setEditingId(tx.id)
+    setEditState({
+      date: tx.date || '',
+      merchant: tx.merchant || '',
+      raw_desc: tx.raw_desc || '',
+      bank: tx.bank || '',
+      cat: tx.cat || '',
+      ars: tx.ars != null ? tx.ars : '',
+      usd: tx.usd != null ? tx.usd : '',
+      notes: tx.notes || '',
+    })
+  }
+
+  const cancelEdit = () => setEditingId(null)
+
+  const saveEdit = async (tx) => {
+    const changes = {}
+    const numFields = new Set(['ars', 'usd'])
+    for (const f of ['date', 'merchant', 'raw_desc', 'bank', 'cat', 'ars', 'usd', 'notes']) {
+      const orig = tx[f] != null ? String(tx[f]) : ''
+      const next = String(editState[f] ?? '')
+      if (next !== orig) {
+        changes[f] = numFields.has(f) ? (editState[f] === '' ? null : parseFloat(editState[f])) : (editState[f] || null)
+      }
+    }
+    if ('cat' in changes) changes.ai_assigned = false
+    if (Object.keys(changes).length > 0) await onUpdate(tx.id, changes)
+    setEditingId(null)
+  }
+
+  const set = (field) => (e) => setEditState(s => ({ ...s, [field]: e.target.value }))
+
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
     return (
@@ -757,6 +801,7 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
     <div style={S.card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{txs.length} transacciones</h3>
+        <span style={{ fontSize: 11, color: '#bbb' }}>doble click o ✏ para editar</span>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
@@ -769,50 +814,93 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
               <SortTh col="ars" label="ARS" align="right" />
               <SortTh col="usd" label="USD" align="right" />
               <th style={S.th}>Notas</th>
-              <th style={S.th}></th>
+              <th style={{ ...S.th, width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
-            {visible.map(tx => (
-              <tr key={tx.id}>
-                <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>{fmtDate(tx.date)}</td>
-                <td style={{ ...S.td, maxWidth: 280 }}>
-                  {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
-                  {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
-                </td>
-                <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>{tx.bank || '—'}</td>
-                <td style={S.td}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
-                    <select value={tx.cat || ''} onChange={e => onCatChange(tx.id, e.target.value)} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
-                      <option value="">—</option>
-                      {CATS.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                </td>
-                <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>{fmtARS(tx.ars)}</td>
-                <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>{fmtUSD(tx.usd)}</td>
-                <td style={S.td}>
-                  {editNote?.id === tx.id ? (
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <input style={{ ...S.input, width: 120, fontSize: 12 }} value={editNote.value}
-                        onChange={e => setEditNote({ ...editNote, value: e.target.value })}
-                        onKeyDown={e => { if (e.key === 'Enter') { onNoteChange(tx.id, editNote.value); setEditNote(null) } if (e.key === 'Escape') setEditNote(null) }}
-                        autoFocus />
-                      <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16 }} onClick={() => { onNoteChange(tx.id, editNote.value); setEditNote(null) }}>✓</button>
-                    </div>
-                  ) : (
-                    <span style={{ fontSize: 12, color: tx.notes ? '#333' : '#bbb', cursor: 'pointer' }} onClick={() => setEditNote({ id: tx.id, value: tx.notes || '' })}>
-                      {tx.notes || '+ nota'}
-                    </span>
-                  )}
-                </td>
-                <td style={S.td}>
-                  <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 16 }} onClick={() => onDelete(tx.id)} title="Eliminar">✕</button>
-                </td>
-              </tr>
-            ))}
+            {visible.map(tx => {
+              const editing = editingId === tx.id
+              return (
+                <tr key={tx.id}
+                  onDoubleClick={() => !editing && startEdit(tx)}
+                  style={{ background: editing ? '#f0f7ff' : undefined, cursor: editing ? 'default' : 'default' }}>
+
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>
+                    {editing
+                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} />
+                      : fmtDate(tx.date)}
+                  </td>
+
+                  <td style={{ ...S.td, maxWidth: 280 }}>
+                    {editing ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} />
+                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Descripción" value={editState.raw_desc} onChange={set('raw_desc')} />
+                      </div>
+                    ) : (<>
+                      {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
+                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
+                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
+                    </>)}
+                  </td>
+
+                  <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>
+                    {editing
+                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')}>
+                          <option value="">—</option>
+                          {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      : tx.bank || '—'}
+                  </td>
+
+                  <td style={S.td}>
+                    {editing
+                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
+                          <option value="">—</option>
+                          {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      : <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
+                          {tx.cat ? <span style={badge(tx.cat)}>{tx.cat}</span> : <span style={{ color: '#bbb', fontSize: 12 }}>—</span>}
+                        </div>}
+                  </td>
+
+                  <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>
+                    {editing
+                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} />
+                      : fmtARS(tx.ars)}
+                  </td>
+
+                  <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>
+                    {editing
+                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} />
+                      : fmtUSD(tx.usd)}
+                  </td>
+
+                  <td style={S.td}>
+                    {editing
+                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} />
+                      : <span style={{ fontSize: 12, color: tx.notes ? '#333' : '#bbb' }}>{tx.notes || '—'}</span>}
+                  </td>
+
+                  <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
+                    {editing ? (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <button style={{ padding: '3px 8px', border: 'none', borderRadius: 4, background: '#27ae60', color: '#fff', cursor: 'pointer', fontSize: 12 }}
+                          onClick={() => saveEdit(tx)}>✓</button>
+                        <button style={{ padding: '3px 8px', border: '1px solid #ddd', borderRadius: 4, background: '#fff', color: '#555', cursor: 'pointer', fontSize: 12 }}
+                          onClick={cancelEdit}>✕</button>
+                        <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 15, padding: '0 2px' }}
+                          onClick={() => onDelete(tx.id)} title="Eliminar">🗑</button>
+                      </div>
+                    ) : (
+                      <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14, padding: '0 4px' }}
+                        onClick={() => startEdit(tx)} title="Editar">✏</button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
