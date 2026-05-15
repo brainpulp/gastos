@@ -147,7 +147,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
         background: selected.length ? '#1a1a2e' : '#fff',
         color: selected.length ? '#fff' : '#333',
       }}>
-        {selected.length === 0 ? `Todas ▾` : `${selected.length} sel. ▾`}
+        {selected.length === 0 ? `Todos ▾` : `${selected.length} sel. ▾`}
       </button>
       {open && (
         <div style={{
