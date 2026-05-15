@@ -201,6 +201,16 @@ export default function Finanzas({ session, onLogout }) {
     const valid = ['dash', 'txs', 'revisar', 'presupuesto', 'auditoria', 'settings']
     return valid.includes(hash) ? hash : 'dash'
   })
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '')
+      const valid = ['dash', 'txs', 'revisar', 'presupuesto', 'auditoria', 'settings']
+      if (valid.includes(hash)) setActiveTab(hash)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
   const [uploadMsg, setUploadMsg] = useState(null)
   const fileRef = useRef()
 
@@ -395,15 +405,11 @@ export default function Finanzas({ session, onLogout }) {
     const last = new Date(y, m, 0).getDate()
     setDateFrom(`${ym}-01`)
     setDateTo(`${ym}-${String(last).padStart(2, '0')}`)
-    setActiveTab('txs')
-    window.location.hash = 'txs'
   }
 
   const goToCat = (cat) => {
     if (!cat) return
     setCatFs([cat])
-    setActiveTab('txs')
-    window.location.hash = 'txs'
   }
 
   const updateTx = async (id, changes) => {
@@ -490,7 +496,7 @@ export default function Finanzas({ session, onLogout }) {
               <span style={S.filterLabel}>Sin cat</span>
               <button
                 style={{ ...S.btnSm(showUncatOnly ? 'active' : 'ghost'), padding: '4px 10px', whiteSpace: 'nowrap' }}
-                onClick={() => setShowUncatOnly(s => !s)}
+                onClick={() => { if (!showUncatOnly) setCatFs([]); setShowUncatOnly(s => !s) }}
               >
                 {showUncatOnly ? '✓ ' : ''}{uncatCount} sin categoría
               </button>
