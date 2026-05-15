@@ -27,7 +27,7 @@ export const CATS = [
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
 
-const BANKS = ['BofA', 'Chase', 'Citibank', 'Santander', 'Wells Fargo']
+const BANKS = ['BofA', 'Cash', 'Chase', 'Citibank', 'Santander', 'Wells Fargo']
 
 const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
 
@@ -559,29 +559,42 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
         </div>
       )}
 
-      {/* Pie chart */}
+      {/* Horizontal bar + pie side by side */}
       {catChart.length > 0 && (
-        <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie
-                data={catChart}
-                dataKey="usd"
-                nameKey="cat"
-                cx="50%" cy="50%"
-                outerRadius="65%"
-                label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
-                labelLine={false}
-              >
-                {catChart.map((entry) => (
-                  <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v) => fmtUSD(v)} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-            </PieChart>
-          </ResponsiveContainer>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ ...S.card, flex: 2, minWidth: 300, marginBottom: 0 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
+                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
+                <Tooltip formatter={(v) => fmtUSD(v)} />
+                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div style={{ ...S.card, flex: 1, minWidth: 280, marginBottom: 0 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie
+                  data={catChart}
+                  dataKey="usd"
+                  nameKey="cat"
+                  cx="50%" cy="50%"
+                  outerRadius="65%"
+                  label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
+                  labelLine={false}
+                >
+                  {catChart.map((entry) => (
+                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => fmtUSD(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
@@ -659,8 +672,32 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
   const [editNote, setEditNote] = useState(null)
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
   const PAGE = 100
-  const visible = txs.slice(0, page * PAGE)
+
+  const sorted = useMemo(() => {
+    const { col, dir } = sort
+    const mul = dir === 'asc' ? 1 : -1
+    return [...txs].sort((a, b) => {
+      let av = a[col], bv = b[col]
+      if (col === 'usd' || col === 'ars') { av = Math.abs(av ?? 0); bv = Math.abs(bv ?? 0) }
+      if (av == null) return 1
+      if (bv == null) return -1
+      return av < bv ? -mul : av > bv ? mul : 0
+    })
+  }, [txs, sort])
+
+  const visible = sorted.slice(0, page * PAGE)
+
+  const SortTh = ({ col, label, align }) => {
+    const active = sort.col === col
+    return (
+      <th style={{ ...S.th, textAlign: align, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+        onClick={() => { setSort(s => ({ col, dir: s.col === col && s.dir === 'asc' ? 'desc' : 'asc' })); setPage(1) }}>
+        {label} <span style={{ opacity: active ? 1 : 0.25 }}>{active && sort.dir === 'asc' ? '↑' : '↓'}</span>
+      </th>
+    )
+  }
 
   return (
     <div style={S.card}>
@@ -671,12 +708,12 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Fecha</th>
+              <SortTh col="date" label="Fecha" />
               <th style={S.th}>Comercio / Descripción</th>
-              <th style={S.th}>Banco</th>
-              <th style={S.th}>Categoría</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+              <SortTh col="bank" label="Banco" />
+              <SortTh col="cat" label="Categoría" />
+              <SortTh col="ars" label="ARS" align="right" />
+              <SortTh col="usd" label="USD" align="right" />
               <th style={S.th}>Notas</th>
               <th style={S.th}></th>
             </tr>
