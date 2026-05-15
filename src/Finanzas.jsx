@@ -692,10 +692,13 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
                 </td>
                 <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>{tx.bank || '—'}</td>
                 <td style={S.td}>
-                  <select value={tx.cat || ''} onChange={e => onCatChange(tx.id, e.target.value)} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
-                    <option value="">—</option>
-                    {CATS.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
+                    <select value={tx.cat || ''} onChange={e => onCatChange(tx.id, e.target.value)} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
+                      <option value="">—</option>
+                      {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </td>
                 <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>{fmtARS(tx.ars)}</td>
                 <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>{fmtUSD(tx.usd)}</td>
