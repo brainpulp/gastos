@@ -622,16 +622,16 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
           <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
           <p style={{ margin: '0 0 12px', fontSize: 11, color: '#aaa' }}>Click en una barra para ver las transacciones de ese mes</p>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}
-              style={{ cursor: 'pointer' }}
-              onClick={({ activePayload }) => { if (activePayload?.[0]?.payload?.ym) onMonthClick(activePayload[0].payload.ym) }}>
+            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
               <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
               {monthlyStackedChart.cats.map(cat => (
-                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat} />
+                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(data) => { if (data?.ym) onMonthClick(data.ym) }} />
               ))}
             </BarChart>
           </ResponsiveContainer>
@@ -645,13 +645,13 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
             <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
             <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}
-                style={{ cursor: 'pointer' }}
-                onClick={({ activePayload }) => { if (activePayload?.[0]?.payload?.cat) onCatClick(activePayload[0].payload.cat) }}>
+              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
                 <Tooltip formatter={(v) => fmtUSD(v)} />
-                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD" />
+                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -668,11 +668,11 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
                   outerRadius="65%"
                   label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
                   labelLine={false}
-                  style={{ cursor: 'pointer' }}
-                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }}
                 >
                   {catChart.map((entry) => (
-                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)} />
+                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => onCatClick(entry.cat)} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(v) => fmtUSD(v)} />
