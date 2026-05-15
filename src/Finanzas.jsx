@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, Legend, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine,
   ScatterChart, Scatter, ZAxis,
   PieChart, Pie, Cell,
 } from 'recharts'
@@ -367,6 +367,16 @@ export default function Finanzas({ session, onLogout }) {
     }
   }
 
+  const goToMonth = (ym) => {
+    if (!ym) return
+    const [y, m] = ym.split('-').map(Number)
+    const last = new Date(y, m, 0).getDate()
+    setDateFrom(`${ym}-01`)
+    setDateTo(`${ym}-${String(last).padStart(2, '0')}`)
+    setActiveTab('txs')
+    window.location.hash = 'txs'
+  }
+
   const updateCat = async (id, cat) => {
     await updateTransaction(id, { cat, ai_assigned: false })
     setTxs(prev => prev.map(t => t.id === id ? { ...t, cat } : t))
@@ -465,6 +475,7 @@ export default function Finanzas({ session, onLogout }) {
             lastTxDate={lastTxDate}
             totalesData={totalesData}
             badge={badge}
+            onMonthClick={goToMonth}
           />
         )}
         {activeTab === 'txs' && <TxsTab txs={filtered} onCatChange={updateCat} onNoteChange={updateNote} onDelete={deleteTx} badge={badge} />}
@@ -484,7 +495,7 @@ export default function Finanzas({ session, onLogout }) {
 
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
-function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge }) {
+function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge, onMonthClick }) {
   const [showScatter, setShowScatter] = useState(false)
 
   const scatterData = useMemo(() => {
@@ -543,9 +554,12 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
       {/* Stacked monthly bar chart */}
       {monthlyStackedChart.data.length > 0 && (
         <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
+          <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
+          <p style={{ margin: '0 0 12px', fontSize: 11, color: '#aaa' }}>Click en una barra para ver las transacciones de ese mes</p>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
+            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}
+              style={{ cursor: 'pointer' }}
+              onClick={({ activePayload }) => { if (activePayload?.[0]?.payload?.ym) onMonthClick(activePayload[0].payload.ym) }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
@@ -842,6 +856,14 @@ function PresupuestoTab({ settings, setSettings, monthlyStackedChart }) {
   const [budget, setBudget] = useState(settings?.monthly_budget_usd ?? 0)
   const budgetUSD = settings?.monthly_budget_usd ?? 0
 
+  const monthlyTotals = useMemo(() =>
+    monthlyStackedChart.data.map(row => ({
+      ym: row.ym,
+      label: row.label,
+      total: monthlyStackedChart.cats.reduce((s, cat) => s + (row[cat] || 0), 0),
+    })),
+  [monthlyStackedChart])
+
   const save = async () => {
     const val = parseFloat(budget) || 0
     await saveSettings({ monthly_budget_usd: val })
@@ -869,19 +891,24 @@ function PresupuestoTab({ settings, setSettings, monthlyStackedChart }) {
         </div>
       </div>
 
-      {monthlyStackedChart.data.length > 0 && (
+      {monthlyTotals.length > 0 && (
         <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos vs presupuesto (USD)</h3>
+          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos vs presupuesto (USD/mes)</h3>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
+            <BarChart data={monthlyTotals} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {monthlyStackedChart.cats.map(cat => (
-                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat} />
-              ))}
+              <Tooltip formatter={(v) => [fmtUSD(v), 'Gasto']} contentStyle={{ fontSize: 12 }} />
+              <Bar dataKey="total" name="Gasto"
+                fill="#e67e22"
+                radius={[3, 3, 0, 0]}
+                label={budgetUSD ? { position: 'top', formatter: v => v > budgetUSD ? '⚠' : '', fontSize: 12 } : false}
+              />
+              {budgetUSD > 0 && (
+                <ReferenceLine y={budgetUSD} stroke="#c0392b" strokeDasharray="5 3" strokeWidth={2}
+                  label={{ value: `Presupuesto ${fmtUSD(budgetUSD)}`, position: 'insideTopRight', fontSize: 11, fill: '#c0392b' }} />
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
