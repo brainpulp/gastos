@@ -190,7 +190,11 @@ export default function Finanzas({ session, onLogout }) {
   const [blueRates, setBlueRates] = useState({})
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState(null)
-  const [activeTab, setActiveTab] = useState('dash')
+  const [activeTab, setActiveTab] = useState(() => {
+    const hash = window.location.hash.replace('#', '')
+    const valid = ['dash', 'txs', 'revisar', 'presupuesto', 'auditoria', 'settings']
+    return valid.includes(hash) ? hash : 'dash'
+  })
   const [uploadMsg, setUploadMsg] = useState(null)
   const fileRef = useRef()
 
@@ -394,7 +398,7 @@ export default function Finanzas({ session, onLogout }) {
     <div style={S.app}>
       <nav style={S.nav}>
         <span style={S.logo}>💸 Gastos</span>
-        {TABS.map(t => <button key={t.id} style={S.navBtn(activeTab === t.id)} onClick={() => setActiveTab(t.id)}>{t.label}</button>)}
+        {TABS.map(t => <button key={t.id} style={S.navBtn(activeTab === t.id)} onClick={() => { setActiveTab(t.id); window.location.hash = t.id }}>{t.label}</button>)}
         <span style={S.spacer} />
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
@@ -663,6 +667,7 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
             <tr>
               <th style={S.th}>Fecha</th>
               <th style={S.th}>Comercio / Descripción</th>
+              <th style={S.th}>Banco</th>
               <th style={S.th}>Categoría</th>
               <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
               <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
@@ -680,6 +685,7 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
                   {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                   {tx.xfer && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, marginTop: 2, display: 'block' }}>TRANSFERENCIA</span>}
                 </td>
+                <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>{tx.bank || '—'}</td>
                 <td style={S.td}>
                   <select value={tx.cat || ''} onChange={e => onCatChange(tx.id, e.target.value)} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
                     <option value="">—</option>
