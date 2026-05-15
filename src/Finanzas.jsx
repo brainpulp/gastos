@@ -262,6 +262,15 @@ export default function Finanzas({ session, onLogout }) {
     return true
   }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search, showUncatOnly])
 
+  const filterActive = !!(selYears.length || dateFrom || dateTo || catFs.length || bankFs.length || search || showUncatOnly)
+
+  const filterSummary = useMemo(() => {
+    const nonXfer = filtered.filter(t => !t.xfer)
+    const out = nonXfer.filter(t => (t.usd ?? 0) < 0).reduce((s, t) => s + (t.usd || 0), 0)
+    const inc = nonXfer.filter(t => (t.usd ?? 0) > 0).reduce((s, t) => s + (t.usd || 0), 0)
+    return { out, inc }
+  }, [filtered])
+
   // Expense txs: non-transfers with negative amount (drives all KPIs and charts)
   const expenseTxs = useMemo(
     () => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)),
@@ -465,6 +474,32 @@ export default function Finanzas({ session, onLogout }) {
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <button style={S.btnSm()} onClick={resetFilters}>Limpiar</button>
             </div>
+          </div>
+        )}
+
+        {filterActive && !['auditoria', 'settings'].includes(activeTab) && (
+          <div style={{
+            background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
+            marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
+          }}>
+            <span style={{ color: '#888', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              {filtered.length} transacciones
+            </span>
+            {filterSummary.out !== 0 && (
+              <span style={{ color: '#ff7675' }}>
+                Gastos: <strong>{fmtUSD(filterSummary.out)}</strong>
+              </span>
+            )}
+            {filterSummary.inc !== 0 && (
+              <span style={{ color: '#55efc4' }}>
+                Ingresos: <strong>{fmtUSD(filterSummary.inc)}</strong>
+              </span>
+            )}
+            {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
+              <span style={{ color: '#74b9ff' }}>
+                Neto: <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong>
+              </span>
+            )}
           </div>
         )}
 
