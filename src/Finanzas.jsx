@@ -237,6 +237,11 @@ export default function Finanzas({ session, onLogout }) {
     [txs]
   )
 
+  const availCats = useMemo(
+    () => [...new Set(txs.map(t => t.cat).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [txs]
+  )
+
   const lastTxDate = useMemo(
     () => txs.length ? txs.reduce((m, t) => (t.date > m ? t.date : m), '') : null,
     [txs]
@@ -442,7 +447,7 @@ export default function Finanzas({ session, onLogout }) {
               </div>
             </div>
             <MultiSelectFilter label="Año" options={availYears.map(String)} selected={selYears} onChange={setSelYears} />
-            <MultiSelectFilter label="Categoría" options={CATS} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
+            <MultiSelectFilter label="Categoría" options={availCats} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
             <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
               <span style={S.filterLabel}>Buscar</span>
