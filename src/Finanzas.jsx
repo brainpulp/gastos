@@ -212,6 +212,9 @@ export default function Finanzas({ session, onLogout }) {
   const [bankFs, setBankFs] = useState([])
   const [search, setSearch] = useState('')
   const [showUncatOnly, setShowUncatOnly] = useState(false)
+  const [amountMin, setAmountMin] = useState('')
+  const [amountMax, setAmountMax] = useState('')
+  const [amountCur, setAmountCur] = useState('usd')
 
   useEffect(() => {
     let cancelled = false
@@ -259,10 +262,15 @@ export default function Finanzas({ session, onLogout }) {
       if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
             t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
     }
+    if (amountMin !== '' || amountMax !== '') {
+      const val = Math.abs(t[amountCur] ?? 0)
+      if (amountMin !== '' && val < parseFloat(amountMin)) return false
+      if (amountMax !== '' && val > parseFloat(amountMax)) return false
+    }
     return true
-  }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search, showUncatOnly])
+  }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search, showUncatOnly, amountMin, amountMax, amountCur])
 
-  const filterActive = !!(selYears.length || dateFrom || dateTo || catFs.length || bankFs.length || search || showUncatOnly)
+  const filterActive = !!(selYears.length || dateFrom || dateTo || catFs.length || bankFs.length || search || showUncatOnly || amountMin !== '' || amountMax !== '')
 
   const filterSummary = useMemo(() => {
     const nonXfer = filtered.filter(t => !t.xfer)
@@ -410,6 +418,7 @@ export default function Finanzas({ session, onLogout }) {
   const resetFilters = () => {
     setSelYears([]); setDateFrom(''); setDateTo('')
     setCatFs([]); setBankFs([]); setSearch(''); setShowUncatOnly(false)
+    setAmountMin(''); setAmountMax('')
   }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
@@ -461,6 +470,18 @@ export default function Finanzas({ session, onLogout }) {
             <MultiSelectFilter label="Año" options={availYears.map(String)} selected={selYears} onChange={setSelYears} />
             <MultiSelectFilter label="Categoría" options={availCats} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
             <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
+            <div style={S.filterGroup}>
+              <span style={S.filterLabel}>Monto</span>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <select style={{ ...S.select, padding: '4px 6px', fontWeight: 600 }} value={amountCur} onChange={e => setAmountCur(e.target.value)}>
+                  <option value="usd">USD</option>
+                  <option value="ars">ARS</option>
+                </select>
+                <input type="number" style={{ ...S.input, width: 80 }} placeholder="min" value={amountMin} onChange={e => setAmountMin(e.target.value)} />
+                <span style={{ fontSize: 12, color: '#aaa' }}>—</span>
+                <input type="number" style={{ ...S.input, width: 80 }} placeholder="max" value={amountMax} onChange={e => setAmountMax(e.target.value)} />
+              </div>
+            </div>
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
               <span style={S.filterLabel}>Buscar</span>
               <input style={{ ...S.input, width: '100%' }} placeholder="descripción, comercio, notas…" value={search} onChange={e => setSearch(e.target.value)} />
