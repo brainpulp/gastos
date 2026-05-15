@@ -33,6 +33,12 @@ const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
+const fmtDate = (s) => {
+  if (!s) return '—'
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 const fmtARS = (n) => {
   if (n == null) return '—'
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
@@ -678,7 +684,7 @@ function TxsTab({ txs, onCatChange, onNoteChange, onDelete, badge }) {
           <tbody>
             {visible.map(tx => (
               <tr key={tx.id}>
-                <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>{tx.date}</td>
+                <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                 <td style={{ ...S.td, maxWidth: 280 }}>
                   {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
                   {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
@@ -760,7 +766,7 @@ function RevisarTab({ txs, setTxs, badge }) {
           <tbody>
             {queue.map(tx => (
               <tr key={tx.id}>
-                <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{tx.date}</td>
+                <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                 <td style={{ ...S.td, maxWidth: 280 }}>
                   {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
                   {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
