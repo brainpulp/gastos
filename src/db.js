@@ -22,22 +22,13 @@ function normalizeTx(tx, userId) {
 
 /** Load all non-deleted transactions for the current user */
 export async function loadTransactions() {
-  const PAGE = 1000
-  let all = []
-  let from = 0
-  while (true) {
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .is('deleted_at', null)
-      .order('date', { ascending: false })
-      .range(from, from + PAGE - 1)
-    if (error) throw error
-    all = all.concat(data)
-    if (data.length < PAGE) break
-    from += PAGE
-  }
-  return all
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('*')
+    .is('deleted_at', null)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data
 }
 
 /** Upsert an array of transactions (from upload or manual add).
@@ -84,6 +75,16 @@ export async function softDeleteTransaction(id) {
   if (error) throw error
 }
 
+/** Bulk update cat on all non-deleted transactions matching oldCat */
+export async function bulkUpdateCat(oldCat, newCat) {
+  const { error } = await supabase
+    .from('transactions')
+    .update({ cat: newCat })
+    .eq('cat', oldCat)
+    .is('deleted_at', null)
+  if (error) throw error
+}
+
 /** Update arbitrary fields on a transaction */
 export async function updateTransaction(id, fields) {
   const { error } = await supabase
@@ -101,24 +102,20 @@ export async function loadSettings() {
   const { data: { user } } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from('settings')
-    .select('user_id, monthly_budget_usd, category_budgets, groups, vendor_hints, usd_rate, expense_groups')
+    .select('*')
     .eq('user_id', user.id)
     .maybeSingle()
   if (error) throw error
 
   // Return defaults if no row yet
-  const defaults = {
+  return data ?? {
     user_id: user.id,
     monthly_budget_usd: 0,
     category_budgets: {},
     groups: [],
     vendor_hints: {},
     usd_rate: 1050,
-    expense_groups: [],
   }
-  if (!data) return defaults
-  // Ensure expense_groups is always an array even if column returned null
-  return { ...defaults, ...data, expense_groups: data.expense_groups ?? [] }
 }
 
 export async function saveSettings(fields) {
