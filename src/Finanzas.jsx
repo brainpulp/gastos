@@ -18,11 +18,12 @@ import { categorizeTxs } from './categorize.js'
 
 export const CATS = [
   'Amazon FBA', 'AR taxes', 'Arcos', 'Boat maintenance',
-  'Business expense', 'Car maintenance', 'Carhué obra', 'Clothing',
-  'Delta', 'Dining', 'El Dorado', 'Entertainment', 'Food', 'Gas', 'Gifts',
+  'Business expense', 'Car maintenance', 'Carhué obra', 'Carhué operacion', 'cash extraction', 'Clothing',
+  'contribution to Sol', 'Delta', 'deptos Roca', 'Dining', 'earn out incoming', 'El Dorado', 'Entertainment',
+  'Food', 'from Vida', 'Gas', 'Gifts',
   'Healthcare', 'Home utilities',
   'Interbank incoming', 'Interbank outgoing', 'Legal fees', 'Loans given',
-  'Mocoreta', 'Must trace', 'pets',
+  'misc fees', 'Mocoreta', 'Must trace', 'pets',
   'Puente to Santander', 'Roca deptos', 'Shopping', 'sports and exercise',
   'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
 ]
