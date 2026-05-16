@@ -139,6 +139,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
   }
   const groupedCatSet = new Set(groups.flatMap(g => g.cats))
   const ungroupedOptions = options.filter(o => !groupedCatSet.has(o))
+  const allOptions = options
 
   return (
     <div style={{ ...S.filterGroup, position: 'relative' }} ref={ref}>
@@ -177,7 +178,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
             <div style={{ margin: '4px 0', borderTop: '1px solid #f0f0f0' }} />
             <div style={{ padding: '4px 12px 3px', fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.06em' }}>Categorías</div>
           </>}
-          {ungroupedOptions.map(opt => (
+          {allOptions.map(opt => (
             <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none' }}>
               <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
               {opt}
