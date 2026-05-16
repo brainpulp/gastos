@@ -20,15 +20,24 @@ function normalizeTx(tx, userId) {
 // Transactions
 // ---------------------------------------------------------------------------
 
-/** Load all non-deleted transactions for the current user */
+/** Load all non-deleted transactions for the current user (paginated to bypass 1000-row default limit) */
 export async function loadTransactions() {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .is('deleted_at', null)
-    .order('date', { ascending: false })
-  if (error) throw error
-  return data
+  const PAGE = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .is('deleted_at', null)
+      .order('date', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
 /** Upsert an array of transactions (from upload or manual add).
