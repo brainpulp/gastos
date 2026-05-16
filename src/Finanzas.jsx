@@ -200,14 +200,14 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'presupuesto', 'auditoria', 'settings']
+    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings']
     return valid.includes(hash) ? hash : 'dash'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'presupuesto', 'auditoria', 'settings']
+      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHashChange)
@@ -468,7 +468,6 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'dash', label: 'Dashboard' },
     { id: 'txs', label: 'Transacciones' },
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
-    { id: 'presupuesto', label: 'Presupuesto' },
     { id: 'auditoria', label: 'Historial IA' },
     { id: 'settings', label: '⚙ Config' },
   ]
@@ -582,7 +581,6 @@ export default function Finanzas({ session, onLogout }) {
         )}
         {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
-        {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyStackedChart={monthlyStackedChart} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
@@ -1042,72 +1040,6 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
 }
 
 // ─── Presupuesto ──────────────────────────────────────────────────────────────
-
-function PresupuestoTab({ settings, setSettings, monthlyStackedChart }) {
-  const [editing, setEditing] = useState(false)
-  const [budget, setBudget] = useState(settings?.monthly_budget_usd ?? 0)
-  const budgetUSD = settings?.monthly_budget_usd ?? 0
-
-  const monthlyTotals = useMemo(() =>
-    monthlyStackedChart.data.map(row => ({
-      ym: row.ym,
-      label: row.label,
-      total: monthlyStackedChart.cats.reduce((s, cat) => s + (row[cat] || 0), 0),
-    })),
-  [monthlyStackedChart])
-
-  const save = async () => {
-    const val = parseFloat(budget) || 0
-    await saveSettings({ monthly_budget_usd: val })
-    setSettings(s => ({ ...s, monthly_budget_usd: val }))
-    setEditing(false)
-  }
-
-  return (
-    <div>
-      <div style={{ ...S.card, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Presupuesto mensual (USD)</div>
-          {editing ? (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input type="number" value={budget} onChange={e => setBudget(e.target.value)} style={{ ...S.input, width: 120 }} autoFocus />
-              <button style={S.btn()} onClick={save}>Guardar</button>
-              <button style={S.btn('secondary')} onClick={() => setEditing(false)}>Cancelar</button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <span style={{ fontSize: 26, fontWeight: 700 }}>{budgetUSD ? fmtUSD(budgetUSD) : '—'}</span>
-              <button style={S.btn('secondary')} onClick={() => { setBudget(budgetUSD); setEditing(true) }}>Editar</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {monthlyTotals.length > 0 && (
-        <div style={S.card}>
-          <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Gastos vs presupuesto (USD/mes)</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyTotals} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <Tooltip formatter={(v) => [fmtUSD(v), 'Gasto']} contentStyle={{ fontSize: 12 }} />
-              <Bar dataKey="total" name="Gasto"
-                fill="#e67e22"
-                radius={[3, 3, 0, 0]}
-                label={budgetUSD ? { position: 'top', formatter: v => v > budgetUSD ? '⚠' : '', fontSize: 12 } : false}
-              />
-              {budgetUSD > 0 && (
-                <ReferenceLine y={budgetUSD} stroke="#c0392b" strokeDasharray="5 3" strokeWidth={2}
-                  label={{ value: `Presupuesto ${fmtUSD(budgetUSD)}`, position: 'insideTopRight', fontSize: 11, fill: '#c0392b' }} />
-              )}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Historial IA ─────────────────────────────────────────────────────────────
 
