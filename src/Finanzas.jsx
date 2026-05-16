@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx'
 import { parseXLSX } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
-  loadSettings, saveSettings, loadCatLog, loadBlueRates,
+  bulkUpdateCat, loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
 
@@ -414,6 +414,11 @@ export default function Finanzas({ session, onLogout }) {
     setCatFs([cat])
   }
 
+  const cats = useMemo(
+    () => settings?.cats ?? CATS,
+    [settings]
+  )
+
   const updateTx = async (id, changes) => {
     await updateTransaction(id, changes)
     setTxs(prev => prev.map(t => t.id === id ? { ...t, ...changes } : t))
@@ -423,6 +428,30 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
+
+  const renameCat = async (oldCat, newCat) => {
+    await bulkUpdateCat(oldCat, newCat)
+    const newCats = cats.map(c => c === oldCat ? newCat : c)
+    await saveSettings({ cats: newCats })
+    setSettings(s => ({ ...s, cats: newCats }))
+    setTxs(prev => prev.map(t => t.cat === oldCat ? { ...t, cat: newCat } : t))
+  }
+
+  const deleteCatFromList = async (cat, reassignTo) => {
+    if (reassignTo) await bulkUpdateCat(cat, reassignTo)
+    else await bulkUpdateCat(cat, null)
+    const newCats = cats.filter(c => c !== cat)
+    await saveSettings({ cats: newCats })
+    setSettings(s => ({ ...s, cats: newCats }))
+    setTxs(prev => prev.map(t => t.cat === cat ? { ...t, cat: reassignTo ?? null } : t))
+  }
+
+  const addCat = async (name) => {
+    const newCats = [...cats, name].sort((a, b) => a.localeCompare(b))
+    await saveSettings({ cats: newCats })
+    setSettings(s => ({ ...s, cats: newCats }))
+  }
+
   const resetFilters = () => {
     setSelYears([]); setDateFrom(''); setDateTo('')
     setCatFs([]); setBankFs([]); setSearch(''); setShowUncatOnly(false)
@@ -551,12 +580,17 @@ export default function Finanzas({ session, onLogout }) {
             onCatClick={goToCat}
           />
         )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} badge={badge} />}
-        {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} badge={badge} cats={cats} />}
+        {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'presupuesto' && <PresupuestoTab settings={settings} setSettings={setSettings} monthlyStackedChart={monthlyStackedChart} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
+          cats={cats}
+          txs={txs}
+          onAddCat={addCat}
+          onRenameCat={renameCat}
+          onDeleteCat={deleteCatFromList}
           onSaveExpenseGroups={async (eg) => { await saveSettings({ expense_groups: eg }); setSettings(s => ({ ...s, expense_groups: eg })) }}
         />}
       </div>
@@ -762,7 +796,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, onUpdate, onDelete, badge }) {
+function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   const [editingId, setEditingId] = useState(null)
   const [editState, setEditState] = useState({})
   const [page, setPage] = useState(1)
@@ -815,6 +849,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
   }
 
   const set = (field) => (e) => setEditState(s => ({ ...s, [field]: e.target.value }))
+  const onEnter = (tx) => (e) => { if (e.key === 'Enter') saveEdit(tx) }
 
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
@@ -856,15 +891,15 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
 
                   <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>
                     {editing
-                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} />
+                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} />
                       : fmtDate(tx.date)}
                   </td>
 
                   <td style={{ ...S.td, maxWidth: 280 }}>
                     {editing ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} />
-                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Descripción" value={editState.raw_desc} onChange={set('raw_desc')} />
+                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} />
+                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Descripción" value={editState.raw_desc} onChange={set('raw_desc')} onKeyDown={onEnter(tx)} />
                       </div>
                     ) : (<>
                       {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
@@ -875,7 +910,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
 
                   <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>
                     {editing
-                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')}>
+                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')} onKeyDown={onEnter(tx)}>
                           <option value="">—</option>
                           {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
@@ -884,9 +919,9 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
 
                   <td style={S.td}>
                     {editing
-                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }}>
+                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }} onKeyDown={onEnter(tx)}>
                           <option value="">—</option>
-                          {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                          {cats.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       : <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
@@ -896,19 +931,19 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
 
                   <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} />
+                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} onKeyDown={onEnter(tx)} />
                       : fmtARS(tx.ars)}
                   </td>
 
                   <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} />
+                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} />
                       : fmtUSD(tx.usd)}
                   </td>
 
                   <td style={S.td}>
                     {editing
-                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} />
+                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} onKeyDown={onEnter(tx)} />
                       : <span style={{ fontSize: 12, color: tx.notes ? '#333' : '#bbb' }}>{tx.notes || '—'}</span>}
                   </td>
 
@@ -924,7 +959,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
                       </div>
                     ) : (
                       <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14, padding: '0 4px' }}
-                        onClick={() => startEdit(tx)} title="Editar">✏</button>
+                        onClick={() => startEdit(tx)} title="Editar">✎</button>
                     )}
                   </td>
                 </tr>
@@ -946,7 +981,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge }) {
 
 // ─── Revisar ──────────────────────────────────────────────────────────────────
 
-function RevisarTab({ txs, setTxs, badge }) {
+function RevisarTab({ txs, setTxs, badge, cats }) {
   const queue = txs.filter(t => t.needs_review && !t.deleted_at)
 
   const confirm = async (tx, cat) => {
@@ -993,7 +1028,7 @@ function RevisarTab({ txs, setTxs, badge }) {
                     {tx.cat && <button style={S.btn()} onClick={() => confirm(tx, tx.cat)}>✓ Confirmar</button>}
                     <select defaultValue="" onChange={e => { if (e.target.value) confirm(tx, e.target.value) }} style={{ ...S.select, fontSize: 12 }}>
                       <option value="">Corregir…</option>
-                      {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </td>
@@ -1197,11 +1232,136 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
   )
 }
 
+// ─── Category management ──────────────────────────────────────────────────────
+
+function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) {
+  const [newCat, setNewCat] = useState('')
+  const [renaming, setRenaming] = useState({})
+  const [mergeTarget, setMergeTarget] = useState({})
+  const [busy, setBusy] = useState(false)
+
+  const catCounts = useMemo(() => {
+    const counts = {}
+    for (const tx of txs) if (tx.cat) counts[tx.cat] = (counts[tx.cat] || 0) + 1
+    return counts
+  }, [txs])
+
+  const doAdd = () => {
+    const name = newCat.trim()
+    if (!name || cats.includes(name)) return
+    onAddCat(name)
+    setNewCat('')
+  }
+
+  const doRename = async (oldCat) => {
+    const newName = (renaming[oldCat] || '').trim()
+    if (!newName || newName === oldCat) { setRenaming(r => ({ ...r, [oldCat]: undefined })); return }
+    setBusy(true)
+    await onRenameCat(oldCat, newName)
+    setRenaming(r => ({ ...r, [oldCat]: undefined }))
+    setBusy(false)
+  }
+
+  const doMerge = async (cat) => {
+    const target = mergeTarget[cat]
+    if (!target || target === cat) return
+    if (!confirm(`¿Fusionar "${cat}" en "${target}"? Todas las transacciones de "${cat}" pasarán a "${target}".`)) return
+    setBusy(true)
+    await onRenameCat(cat, target)
+    setMergeTarget(m => ({ ...m, [cat]: undefined }))
+    setBusy(false)
+  }
+
+  const doDelete = async (cat) => {
+    const count = catCounts[cat] || 0
+    const msg = count > 0
+      ? `"${cat}" tiene ${count} transacciones. ¿Qué hacemos con ellas?`
+      : `¿Eliminar la categoría "${cat}"?`
+    if (!confirm(msg)) return
+    let reassignTo = null
+    if (count > 0) {
+      reassignTo = prompt(`Mover las ${count} transacciones a (dejar vacío para sin categoría):`) || null
+      if (reassignTo !== null && !cats.includes(reassignTo)) { alert('Categoría destino no encontrada.'); return }
+    }
+    setBusy(true)
+    await onDeleteCat(cat, reassignTo)
+    setBusy(false)
+  }
+
+  return (
+    <div style={S.card}>
+      <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Categorías</h3>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 14px' }}>Agregá, renombrá, fusioná o eliminá categorías. Renombrar y fusionar actualiza todas las transacciones.</p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input style={{ ...S.input, flex: 1, maxWidth: 280 }} placeholder="Nueva categoría…"
+          value={newCat} onChange={e => setNewCat(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && doAdd()} />
+        <button style={S.btn()} onClick={doAdd}>Agregar</button>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ ...S.table, fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={S.th}>Categoría</th>
+              <th style={{ ...S.th, textAlign: 'right' }}>Txs</th>
+              <th style={S.th}>Renombrar</th>
+              <th style={S.th}>Fusionar en</th>
+              <th style={{ ...S.th, width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {cats.map(cat => {
+              const currentName = renaming[cat] ?? cat
+              const isDirty = renaming[cat] !== undefined && renaming[cat] !== cat
+              return (
+                <tr key={cat}>
+                  <td style={S.td}><span style={badge(cat)}>{cat}</span></td>
+                  <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{catCounts[cat] || 0}</td>
+                  <td style={S.td}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <input style={{ ...S.input, width: 170, fontSize: 12 }}
+                        value={currentName}
+                        onChange={e => setRenaming(r => ({ ...r, [cat]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && isDirty && doRename(cat)} />
+                      {isDirty && (
+                        <button style={{ ...S.btnSm(), background: '#27ae60', color: '#fff', border: 'none', fontWeight: 700 }}
+                          disabled={busy} onClick={() => doRename(cat)}>✓</button>
+                      )}
+                    </div>
+                  </td>
+                  <td style={S.td}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <select style={{ ...S.select, fontSize: 12, maxWidth: 170 }}
+                        value={mergeTarget[cat] || ''}
+                        onChange={e => setMergeTarget(m => ({ ...m, [cat]: e.target.value }))}>
+                        <option value="">— fusionar en —</option>
+                        {cats.filter(c => c !== cat).map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      {mergeTarget[cat] && (
+                        <button style={{ ...S.btnSm(), background: '#e67e22', color: '#fff', border: 'none', fontWeight: 700 }}
+                          disabled={busy} onClick={() => doMerge(cat)}>→</button>
+                      )}
+                    </div>
+                  </td>
+                  <td style={S.td}>
+                    <button style={S.btnSm('danger')} disabled={busy} onClick={() => doDelete(cat)}>✕</button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-function SettingsTab({ settings, onSaveExpenseGroups }) {
+function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, onSaveExpenseGroups }) {
   return (
     <div>
+      <CategoryMgmtSection cats={cats} txs={txs} onAddCat={onAddCat} onRenameCat={onRenameCat} onDeleteCat={onDeleteCat} />
       <CategoryGroupsSection expenseGroups={settings?.expense_groups ?? []} onSave={onSaveExpenseGroups} />
       <div style={S.card}>
         <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio histórico</h3>
