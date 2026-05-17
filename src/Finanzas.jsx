@@ -30,6 +30,15 @@ export const CATS = [
 
 const BANKS = ['BofA', 'Cash', 'Chase', 'Citibank', 'Santander', 'Wells Fargo']
 
+const BANK_STYLE = {
+  'BofA':        { background: '#e8f0fe', color: '#1a56db' },
+  'Cash':        { background: '#e8f5e9', color: '#2e7d32' },
+  'Chase':       { background: '#fff3e0', color: '#b45309' },
+  'Citibank':    { background: '#e0f2fe', color: '#0369a1' },
+  'Santander':   { background: '#fce4ec', color: '#b91c1c' },
+  'Wells Fargo': { background: '#fef9c3', color: '#92400e' },
+}
+
 const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
@@ -91,7 +100,7 @@ const S = {
     textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #eee',
     color: '#666', fontWeight: 600, fontSize: 12, textTransform: 'uppercase',
   },
-  td: { padding: '7px 10px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
+  td: { padding: '4px 8px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
   negARS: { color: '#c0392b', fontWeight: 500 },
   posARS: { color: '#27ae60', fontWeight: 500 },
   btn: (variant = 'primary') => ({
@@ -796,6 +805,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   const [editingId, setEditingId] = useState(null)
+  const [focusField, setFocusField] = useState(null)
   const [editState, setEditState] = useState({})
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
@@ -815,8 +825,9 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
   const visible = sorted.slice(0, page * PAGE)
 
-  const startEdit = (tx) => {
+  const startEdit = (tx, field = 'merchant') => {
     setEditingId(tx.id)
+    setFocusField(field)
     setEditState({
       date: tx.date || '',
       merchant: tx.merchant || '',
@@ -829,7 +840,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     })
   }
 
-  const cancelEdit = () => setEditingId(null)
+  const cancelEdit = () => { setEditingId(null); setFocusField(null) }
 
   const saveEdit = async (tx) => {
     const changes = {}
@@ -844,10 +855,12 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     if ('cat' in changes) changes.ai_assigned = false
     if (Object.keys(changes).length > 0) await onUpdate(tx.id, changes)
     setEditingId(null)
+    setFocusField(null)
   }
 
   const set = (field) => (e) => setEditState(s => ({ ...s, [field]: e.target.value }))
   const onEnter = (tx) => (e) => { if (e.key === 'Enter') saveEdit(tx) }
+  const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
 
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
@@ -859,11 +872,13 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     )
   }
 
+  const cellStyle = (extra) => ({ ...S.td, cursor: 'text', ...extra })
+
   return (
     <div style={S.card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{txs.length} transacciones</h3>
-        <span style={{ fontSize: 11, color: '#bbb' }}>doble click o ✏ para editar</span>
+        <span style={{ fontSize: 11, color: '#bbb' }}>click en cualquier campo para editar · Enter para guardar</span>
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
@@ -876,48 +891,49 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
               <SortTh col="ars" label="ARS" align="right" />
               <SortTh col="usd" label="USD" align="right" />
               <th style={S.th}>Notas</th>
-              <th style={{ ...S.th, width: 80 }}></th>
+              <th style={{ ...S.th, width: 60 }}></th>
             </tr>
           </thead>
           <tbody>
             {visible.map(tx => {
               const editing = editingId === tx.id
+              const bs = BANK_STYLE[tx.bank]
               return (
-                <tr key={tx.id}
-                  onDoubleClick={() => !editing && startEdit(tx)}
-                  style={{ background: editing ? '#f0f7ff' : undefined, cursor: editing ? 'default' : 'default' }}>
+                <tr key={tx.id} style={{ background: editing ? '#f0f7ff' : undefined }}>
 
-                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: '#888', fontSize: 12 }}>
+                  <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing
-                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} />
+                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'date'} />
                       : fmtDate(tx.date)}
                   </td>
 
-                  <td style={{ ...S.td, maxWidth: 280 }}>
+                  <td style={cellStyle({})} onClick={clickCell(tx, 'merchant')}>
                     {editing ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} />
+                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
                         <input style={{ ...S.input, fontSize: 12 }} placeholder="Descripción" value={editState.raw_desc} onChange={set('raw_desc')} onKeyDown={onEnter(tx)} />
                       </div>
                     ) : (<>
                       {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
+                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{tx.raw_desc}</div>}
                       {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                     </>)}
                   </td>
 
-                  <td style={{ ...S.td, fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>
+                  <td style={cellStyle({ whiteSpace: 'nowrap' })} onClick={clickCell(tx, 'bank')}>
                     {editing
-                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')} onKeyDown={onEnter(tx)}>
+                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'bank'}>
                           <option value="">—</option>
                           {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
-                      : tx.bank || '—'}
+                      : tx.bank
+                        ? <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, ...(bs ?? { background: '#f0f0f0', color: '#555' }) }}>{tx.bank}</span>
+                        : <span style={{ color: '#bbb' }}>—</span>}
                   </td>
 
-                  <td style={S.td}>
+                  <td style={cellStyle({})} onClick={clickCell(tx, 'cat')}>
                     {editing
-                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }} onKeyDown={onEnter(tx)}>
+                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }} onKeyDown={onEnter(tx)} autoFocus={focusField === 'cat'}>
                           <option value="">—</option>
                           {cats.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
@@ -927,21 +943,21 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
                         </div>}
                   </td>
 
-                  <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 }}>
+                  <td style={cellStyle({ textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 })} onClick={clickCell(tx, 'ars')}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} onKeyDown={onEnter(tx)} />
+                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'ars'} />
                       : fmtARS(tx.ars)}
                   </td>
 
-                  <td style={{ ...S.td, textAlign: 'right', color: '#555', fontSize: 12 }}>
+                  <td style={cellStyle({ textAlign: 'right', color: '#555', fontSize: 12 })} onClick={clickCell(tx, 'usd')}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} />
+                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'usd'} />
                       : fmtUSD(tx.usd)}
                   </td>
 
-                  <td style={S.td}>
+                  <td style={cellStyle({})} onClick={clickCell(tx, 'notes')}>
                     {editing
-                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} onKeyDown={onEnter(tx)} />
+                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'notes'} />
                       : <span style={{ fontSize: 12, color: tx.notes ? '#333' : '#bbb' }}>{tx.notes || '—'}</span>}
                   </td>
 
@@ -957,7 +973,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
                       </div>
                     ) : (
                       <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14, padding: '0 4px' }}
-                        onClick={() => startEdit(tx)} title="Editar">✎</button>
+                        onClick={(e) => { e.stopPropagation(); startEdit(tx, 'merchant') }} title="Editar">✎</button>
                     )}
                   </td>
                 </tr>
