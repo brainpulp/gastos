@@ -859,8 +859,15 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   }
 
   const set = (field) => (e) => setEditState(s => ({ ...s, [field]: e.target.value }))
-  const onEnter = (tx) => (e) => { if (e.key === 'Enter') saveEdit(tx) }
+  const onEnter = (tx) => (e) => { if (e.key === 'Enter') saveEdit(tx); else if (e.key === 'Escape') cancelEdit() }
+  const saveField = async (tx, field, value) => {
+    const changes = { [field]: value || null }
+    if (field === 'cat') changes.ai_assigned = false
+    await onUpdate(tx.id, changes)
+    setEditingId(null); setFocusField(null)
+  }
   const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
+  const iStyle = { padding: 0, border: 'none', borderBottom: '1px solid #bbb', borderRadius: 0, background: 'transparent', width: '100%', outline: 'none', fontFamily: 'inherit' }
 
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
@@ -903,15 +910,23 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing
-                      ? <input type="date" style={{ ...S.input, width: 130, fontSize: 12 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'date'} />
+                      ? <input type="date" style={{ ...iStyle, fontSize: 12, width: 130 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'date'} />
                       : fmtDate(tx.date)}
                   </td>
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'merchant')}>
                     {editing ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
-                        <input style={{ ...S.input, fontSize: 12 }} placeholder="Descripción" value={editState.raw_desc} onChange={set('raw_desc')} onKeyDown={onEnter(tx)} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <input style={{ ...iStyle, fontWeight: 600, fontSize: 13 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
+                        <textarea
+                          style={{ ...iStyle, fontSize: 12, color: editState.merchant ? '#666' : '#1a1a2e', whiteSpace: 'pre-wrap', wordBreak: 'break-word', resize: 'none', overflow: 'hidden' }}
+                          placeholder="Descripción"
+                          value={editState.raw_desc}
+                          rows={(editState.raw_desc || '').split('\n').length || 1}
+                          onChange={set('raw_desc')}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(tx) } else if (e.key === 'Escape') cancelEdit() }}
+                        />
+                        {tx.referencia && <div style={{ fontSize: 11, color: '#aaa' }}>{tx.referencia}</div>}
                       </div>
                     ) : (<>
                       {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
@@ -922,7 +937,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ whiteSpace: 'nowrap' })} onClick={clickCell(tx, 'bank')}>
                     {editing
-                      ? <select style={{ ...S.select, fontSize: 12 }} value={editState.bank} onChange={set('bank')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'bank'}>
+                      ? <select style={{ ...iStyle, fontSize: 12 }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
                           <option value="">—</option>
                           {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
@@ -933,7 +948,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'cat')}>
                     {editing
-                      ? <select value={editState.cat} onChange={set('cat')} style={{ ...S.select, maxWidth: 170, fontSize: 12 }} onKeyDown={onEnter(tx)} autoFocus={focusField === 'cat'}>
+                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12 }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
                           <option value="">—</option>
                           {cats.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
@@ -945,32 +960,26 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 })} onClick={clickCell(tx, 'ars')}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 110, textAlign: 'right', fontSize: 12 }} value={editState.ars} onChange={set('ars')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'ars'} />
+                      ? <input type="number" style={{ ...iStyle, width: 110, textAlign: 'right', fontSize: 13 }} value={editState.ars} onChange={set('ars')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'ars'} />
                       : fmtARS(tx.ars)}
                   </td>
 
                   <td style={cellStyle({ textAlign: 'right', color: '#555', fontSize: 12 })} onClick={clickCell(tx, 'usd')}>
                     {editing
-                      ? <input type="number" style={{ ...S.input, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'usd'} />
+                      ? <input type="number" style={{ ...iStyle, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'usd'} />
                       : fmtUSD(tx.usd)}
                   </td>
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'notes')}>
                     {editing
-                      ? <input style={{ ...S.input, width: 130, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'notes'} />
+                      ? <input style={{ ...iStyle, fontSize: 12 }} placeholder="notas…" value={editState.notes} onChange={set('notes')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'notes'} />
                       : <span style={{ fontSize: 12, color: tx.notes ? '#333' : '#bbb' }}>{tx.notes || '—'}</span>}
                   </td>
 
                   <td style={{ ...S.td, whiteSpace: 'nowrap' }}>
                     {editing ? (
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <button style={{ padding: '3px 8px', border: 'none', borderRadius: 4, background: '#27ae60', color: '#fff', cursor: 'pointer', fontSize: 12 }}
-                          onClick={() => saveEdit(tx)}>✓</button>
-                        <button style={{ padding: '3px 8px', border: '1px solid #ddd', borderRadius: 4, background: '#fff', color: '#555', cursor: 'pointer', fontSize: 12 }}
-                          onClick={cancelEdit}>✕</button>
-                        <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 15, padding: '0 2px' }}
-                          onClick={() => onDelete(tx.id)} title="Eliminar">🗑</button>
-                      </div>
+                      <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 15, padding: '0 2px' }}
+                        onClick={() => onDelete(tx.id)} title="Eliminar">🗑</button>
                     ) : (
                       <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 14, padding: '0 4px' }}
                         onClick={(e) => { e.stopPropagation(); startEdit(tx, 'merchant') }} title="Editar">✎</button>
