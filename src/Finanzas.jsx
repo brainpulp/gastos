@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useContext, createContext } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine,
@@ -13,6 +13,9 @@ import {
   bulkUpdateCat, loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
+
+const ThemeCtx = createContext(false)
+const useTheme = () => useContext(ThemeCtx)
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -61,60 +64,57 @@ const fmtK = (n) => (Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const S = {
-  app: { fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f4f5f7' },
-  nav: {
-    display: 'flex', alignItems: 'center', gap: 4, padding: '0 16px',
-    background: '#1a1a2e', color: '#fff', height: 48, flexWrap: 'wrap',
-  },
-  navBtn: (active) => ({
-    padding: '6px 14px', border: 'none', borderRadius: 6, cursor: 'pointer',
-    background: active ? '#fff' : 'transparent',
-    color: active ? '#1a1a2e' : '#ccc', fontWeight: active ? 600 : 400, fontSize: 14,
-  }),
-  logo: { fontWeight: 700, fontSize: 18, marginRight: 8, color: '#fff' },
-  spacer: { flex: 1 },
-  logoutBtn: {
-    padding: '4px 12px', border: '1px solid #555', borderRadius: 6,
-    background: 'transparent', color: '#ccc', cursor: 'pointer', fontSize: 13,
-  },
-  content: { padding: 16, maxWidth: 1200, margin: '0 auto' },
-  card: {
-    background: '#fff', borderRadius: 10, padding: 16,
-    boxShadow: '0 1px 6px rgba(0,0,0,.08)', marginBottom: 16,
-  },
-  filterBar: {
-    background: '#fff', borderRadius: 10, padding: '10px 16px',
-    boxShadow: '0 1px 6px rgba(0,0,0,.08)', marginBottom: 16,
-    display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start',
-  },
-  filterGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
-  filterLabel: { fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '.04em' },
-  select: { padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13, background: '#fff' },
-  input: { padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13 },
-  statVal: { fontSize: 28, fontWeight: 700, color: '#1a1a2e' },
-  statSub: { fontSize: 12, color: '#aaa', marginTop: 3 },
-  statLbl: { fontSize: 12, color: '#888', marginTop: 2 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: {
-    textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #eee',
-    color: '#666', fontWeight: 600, fontSize: 12, textTransform: 'uppercase',
-  },
-  td: { padding: '4px 8px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
-  negARS: { color: '#c0392b', fontWeight: 500 },
-  posARS: { color: '#27ae60', fontWeight: 500 },
-  btn: (variant = 'primary') => ({
-    padding: '7px 16px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
-    background: variant === 'primary' ? '#1a1a2e' : '#f0f0f0',
-    color: variant === 'primary' ? '#fff' : '#333',
-  }),
-  btnSm: (variant = 'ghost') => ({
-    padding: '3px 8px', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer', fontSize: 12,
-    background: variant === 'danger' ? '#fee2e2' : variant === 'active' ? '#1a1a2e' : 'transparent',
-    color: variant === 'danger' ? '#c0392b' : variant === 'active' ? '#fff' : '#555',
-    borderColor: variant === 'active' ? '#1a1a2e' : '#ddd',
-  }),
+function makeS(dark) {
+  const bg       = dark ? '#0f0f1a' : '#f4f5f7'
+  const card     = dark ? '#1a1a2e' : '#fff'
+  const border   = dark ? '#2a2a3e' : '#eee'
+  const borderSoft = dark ? '#2a2a3e' : '#f0f0f0'
+  const text     = dark ? '#e0e0e0' : '#1a1a2e'
+  const muted    = dark ? '#8a8aaa' : '#888'
+  const inputBg  = dark ? '#12121f' : '#fff'
+  const inputBdr = dark ? '#2a2a3e' : '#ddd'
+  const shadow   = dark ? '0 1px 6px rgba(0,0,0,.5)' : '0 1px 6px rgba(0,0,0,.08)'
+  return {
+    app: { fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: bg, color: text },
+    nav: { display: 'flex', alignItems: 'center', gap: 4, padding: '0 16px', background: '#1a1a2e', color: '#fff', height: 48, flexWrap: 'wrap' },
+    navBtn: (active) => ({
+      padding: '6px 14px', border: 'none', borderRadius: 6, cursor: 'pointer',
+      background: active ? '#fff' : 'transparent',
+      color: active ? '#1a1a2e' : '#ccc', fontWeight: active ? 600 : 400, fontSize: 14,
+    }),
+    themeBtn: { padding: '4px 10px', border: '1px solid #555', borderRadius: 6, background: 'transparent', color: '#ccc', cursor: 'pointer', fontSize: 15, lineHeight: 1 },
+    logo: { fontWeight: 700, fontSize: 18, marginRight: 8, color: '#fff' },
+    spacer: { flex: 1 },
+    logoutBtn: { padding: '4px 12px', border: '1px solid #555', borderRadius: 6, background: 'transparent', color: '#ccc', cursor: 'pointer', fontSize: 13 },
+    content: { padding: 16, maxWidth: 1200, margin: '0 auto' },
+    card: { background: card, borderRadius: 10, padding: 16, boxShadow: shadow, marginBottom: 16 },
+    filterBar: { background: card, borderRadius: 10, padding: '10px 16px', boxShadow: shadow, marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' },
+    filterGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
+    filterLabel: { fontSize: 11, fontWeight: 600, color: muted, textTransform: 'uppercase', letterSpacing: '.04em' },
+    select: { padding: '4px 8px', border: `1px solid ${inputBdr}`, borderRadius: 6, fontSize: 13, background: inputBg, color: text },
+    input:  { padding: '4px 8px', border: `1px solid ${inputBdr}`, borderRadius: 6, fontSize: 13, background: inputBg, color: text },
+    statVal: { fontSize: 28, fontWeight: 700, color: text },
+    statSub: { fontSize: 12, color: muted, marginTop: 3 },
+    statLbl: { fontSize: 12, color: muted, marginTop: 2 },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+    th: { textAlign: 'left', padding: '8px 10px', borderBottom: `2px solid ${border}`, color: muted, fontWeight: 600, fontSize: 12, textTransform: 'uppercase' },
+    td: { padding: '4px 8px', borderBottom: `1px solid ${borderSoft}`, verticalAlign: 'middle', color: text },
+    negARS: { color: dark ? '#e05252' : '#c0392b', fontWeight: 500 },
+    posARS: { color: '#27ae60', fontWeight: 500 },
+    btn: (variant = 'primary') => ({
+      padding: '7px 16px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+      background: variant === 'primary' ? (dark ? '#5555aa' : '#1a1a2e') : (dark ? '#2a2a3e' : '#f0f0f0'),
+      color: variant === 'primary' ? '#fff' : (dark ? '#ccc' : '#333'),
+    }),
+    btnSm: (variant = 'ghost') => ({
+      padding: '3px 8px', border: `1px solid ${inputBdr}`, borderRadius: 4, cursor: 'pointer', fontSize: 12,
+      background: variant === 'danger' ? (dark ? '#3a1010' : '#fee2e2') : variant === 'active' ? '#1a1a2e' : 'transparent',
+      color: variant === 'danger' ? (dark ? '#e05252' : '#c0392b') : variant === 'active' ? '#fff' : (dark ? '#aaa' : '#555'),
+      borderColor: variant === 'active' ? '#1a1a2e' : inputBdr,
+    }),
+  }
 }
+const S = makeS(false)
 
 function catColor(cat, alpha = 1) {
   let h = 0
@@ -131,6 +131,11 @@ const badge = (cat) => ({
 // ─── Multi-select filter dropdown ────────────────────────────────────────────
 
 function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const inputBg  = dark ? '#12121f' : '#fff'
+  const inputBdr = dark ? '#2a2a3e' : '#ddd'
+  const text     = dark ? '#e0e0e0' : '#1a1a2e'
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -155,20 +160,20 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
       <span style={S.filterLabel}>{label}</span>
       <button onClick={() => setOpen(o => !o)} style={{
         ...S.select, textAlign: 'left', cursor: 'pointer', minWidth: 130,
-        background: selected.length ? '#1a1a2e' : '#fff',
-        color: selected.length ? '#fff' : '#333',
+        background: selected.length ? '#1a1a2e' : inputBg,
+        color: selected.length ? '#fff' : text,
       }}>
         {selected.length === 0 ? `Todos ▾` : `${selected.length} sel. ▾`}
       </button>
       {open && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, zIndex: 200,
-          background: '#fff', border: '1px solid #ddd', borderRadius: 8,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.13)', padding: '6px 0',
-          minWidth: 220, maxHeight: 340, overflowY: 'auto',
+          background: inputBg, border: `1px solid ${inputBdr}`, borderRadius: 8,
+          boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.5)' : '0 4px 20px rgba(0,0,0,0.13)', padding: '6px 0',
+          minWidth: 220, maxHeight: 340, overflowY: 'auto', color: text,
         }}>
           {selected.length > 0 && (
-            <div style={{ padding: '4px 12px 6px', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ padding: '4px 12px 6px', borderBottom: `1px solid ${inputBdr}` }}>
               <button style={{ fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                 onClick={() => onChange([])}>✕ Limpiar</button>
             </div>
@@ -176,7 +181,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
           {groups.length > 0 && <>
             <div style={{ padding: '6px 12px 3px', fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.06em' }}>Grupos</div>
             {groups.map(g => (
-              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none', background: groupSomeSelected(g) ? '#f3e8ff' : 'transparent' }}>
+              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13, userSelect: 'none', background: groupSomeSelected(g) ? (dark ? '#2a1a3e' : '#f3e8ff') : 'transparent' }}>
                 <input type="checkbox" checked={groupAllSelected(g)}
                   ref={el => { if (el) el.indeterminate = groupSomeSelected(g) && !groupAllSelected(g) }}
                   onChange={() => toggleGroup(g)} />
@@ -184,7 +189,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
                 <span style={{ fontSize: 11, color: '#aaa', marginLeft: 'auto' }}>{g.cats.length}</span>
               </label>
             ))}
-            <div style={{ margin: '4px 0', borderTop: '1px solid #f0f0f0' }} />
+            <div style={{ margin: '4px 0', borderTop: `1px solid ${inputBdr}` }} />
             <div style={{ padding: '4px 12px 3px', fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '.06em' }}>Categorías</div>
           </>}
           {allOptions.map(opt => (
@@ -236,6 +241,9 @@ export default function Finanzas({ session, onLogout }) {
   const [amountMin, setAmountMin] = useState('')
   const [amountMax, setAmountMax] = useState('')
   const [amountCur, setAmountCur] = useState('usd')
+  const [dark, setDark] = useState(() => localStorage.getItem('gastos-theme') === 'dark')
+  useEffect(() => { localStorage.setItem('gastos-theme', dark ? 'dark' : 'light') }, [dark])
+  const S = makeS(dark)
 
   useEffect(() => {
     let cancelled = false
@@ -482,11 +490,15 @@ export default function Finanzas({ session, onLogout }) {
   ]
 
   return (
+    <ThemeCtx.Provider value={dark}>
     <div style={S.app}>
       <nav style={S.nav}>
         <span style={S.logo}>💸 Gastos</span>
         {TABS.map(t => <button key={t.id} style={S.navBtn(activeTab === t.id)} onClick={() => { setActiveTab(t.id); window.location.hash = t.id }}>{t.label}</button>)}
         <span style={S.spacer} />
+        <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
+          {dark ? '☀️' : '🌙'}
+        </button>
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
           <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
@@ -602,6 +614,7 @@ export default function Finanzas({ session, onLogout }) {
         />}
       </div>
     </div>
+    </ThemeCtx.Provider>
   )
 }
 
@@ -610,6 +623,8 @@ export default function Finanzas({ session, onLogout }) {
 const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '#1abc9c']
 
 function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge, onMonthClick, onCatClick }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const [showScatter, setShowScatter] = useState(false)
 
   const scatterData = useMemo(() => {
@@ -804,6 +819,8 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
 function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const [editingId, setEditingId] = useState(null)
   const [focusField, setFocusField] = useState(null)
   const [editState, setEditState] = useState({})
@@ -867,7 +884,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     setEditingId(null); setFocusField(null)
   }
   const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
-  const iStyle = { padding: 0, border: 'none', borderBottom: '1px solid #bbb', borderRadius: 0, background: 'transparent', width: '100%', outline: 'none', fontFamily: 'inherit' }
+  const iStyle = { padding: 0, border: 'none', borderBottom: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`, borderRadius: 0, background: 'transparent', color: 'inherit', width: '100%', outline: 'none', fontFamily: 'inherit' }
 
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
@@ -906,7 +923,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
               const editing = editingId === tx.id
               const bs = BANK_STYLE[tx.bank]
               return (
-                <tr key={tx.id} style={{ background: editing ? '#f0f7ff' : undefined }}>
+                <tr key={tx.id} style={{ background: editing ? (dark ? '#1a1f3a' : '#f0f7ff') : undefined }}>
 
                   <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing
@@ -1005,12 +1022,30 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 // ─── Revisar ──────────────────────────────────────────────────────────────────
 
 function RevisarTab({ txs, setTxs, badge, cats }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const queue = txs.filter(t => t.needs_review && !t.deleted_at)
 
-  const confirm = async (tx, cat) => {
+  const confirmTx = async (tx, cat) => {
     await updateTransaction(tx.id, { cat, needs_review: false, ai_assigned: false })
     setTxs(prev => prev.map(t => t.id === tx.id ? { ...t, cat, needs_review: false } : t))
   }
+
+  const deleteTx = async (id) => {
+    if (!window.confirm('¿Ocultar esta transacción? (soft delete)')) return
+    await softDeleteTransaction(id)
+    setTxs(prev => prev.filter(t => t.id !== id))
+  }
+
+  const deleteAllEmpty = async () => {
+    const empty = queue.filter(t => !t.merchant && !t.raw_desc)
+    if (!empty.length) return
+    if (!window.confirm(`¿Eliminar ${empty.length} transacciones vacías?`)) return
+    for (const t of empty) await softDeleteTransaction(t.id)
+    setTxs(prev => prev.filter(t => !empty.find(e => e.id === t.id)))
+  }
+
+  const emptyCount = queue.filter(t => !t.merchant && !t.raw_desc).length
 
   if (!queue.length) return (
     <div style={{ ...S.card, textAlign: 'center', padding: 40, color: '#888' }}>
@@ -1020,7 +1055,14 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
 
   return (
     <div style={S.card}>
-      <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>{queue.length} transacciones por revisar</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{queue.length} transacciones por revisar</h3>
+        {emptyCount > 0 && (
+          <button style={S.btnSm('danger')} onClick={deleteAllEmpty}>
+            🗑 Eliminar {emptyCount} vacías
+          </button>
+        )}
+      </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
           <thead>
@@ -1030,6 +1072,7 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
               <th style={S.th}>Sugerencia AI</th>
               <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
               <th style={S.th}>Confirmar / Corregir</th>
+              <th style={{ ...S.th, width: 40 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -1048,12 +1091,16 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
                 <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(tx.ars)}</td>
                 <td style={S.td}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {tx.cat && <button style={S.btn()} onClick={() => confirm(tx, tx.cat)}>✓ Confirmar</button>}
-                    <select defaultValue="" onChange={e => { if (e.target.value) confirm(tx, e.target.value) }} style={{ ...S.select, fontSize: 12 }}>
+                    {tx.cat && <button style={S.btn()} onClick={() => confirmTx(tx, tx.cat)}>✓ Confirmar</button>}
+                    <select defaultValue="" onChange={e => { if (e.target.value) confirmTx(tx, e.target.value) }} style={{ ...S.select, fontSize: 12 }}>
                       <option value="">Corregir…</option>
                       {cats.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                </td>
+                <td style={S.td}>
+                  <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 15, padding: '0 2px' }}
+                    onClick={() => deleteTx(tx.id)} title="Eliminar">🗑</button>
                 </td>
               </tr>
             ))}
@@ -1069,6 +1116,8 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
 // ─── Historial IA ─────────────────────────────────────────────────────────────
 
 function AuditoriaTab({ badge }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const [log, setLog] = useState(null)
   const [loading, setLoading] = useState(true)
   useEffect(() => { loadCatLog({ limit: 500 }).then(d => { setLog(d); setLoading(false) }) }, [])
@@ -1119,6 +1168,8 @@ function AuditoriaTab({ badge }) {
 // ─── Category Groups ──────────────────────────────────────────────────────────
 
 function CategoryGroupsSection({ expenseGroups, onSave }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const [groups, setGroups] = useState(expenseGroups ?? [])
   const [newName, setNewName] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -1151,7 +1202,7 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
         <button style={S.btn()} onClick={addGroup}>Agregar</button>
       </div>
       {groups.map(g => (
-        <div key={g.id} style={{ marginBottom: 12, padding: '10px 14px', background: '#f8f8f8', borderRadius: 8 }}>
+        <div key={g.id} style={{ marginBottom: 12, padding: '10px 14px', background: dark ? '#12121f' : '#f8f8f8', borderRadius: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             <input style={{ ...S.input, flex: 1, maxWidth: 240, fontWeight: 600 }} value={g.name}
               onChange={e => renameGroup(g.id, e.target.value)} />
@@ -1159,9 +1210,9 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
             <label style={{
               display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer',
               padding: '4px 10px', borderRadius: 14,
-              border: `1px solid ${g.showOnDash ? '#8e44ad' : '#ddd'}`,
-              background: g.showOnDash ? '#f3e8ff' : '#fff',
-              color: g.showOnDash ? '#8e44ad' : '#888',
+              border: `1px solid ${g.showOnDash ? '#8e44ad' : (dark ? '#2a2a3e' : '#ddd')}`,
+              background: g.showOnDash ? (dark ? '#2a1a3e' : '#f3e8ff') : (dark ? '#1a1a2e' : '#fff'),
+              color: g.showOnDash ? '#a855f7' : '#888',
               userSelect: 'none',
             }}>
               <input type="checkbox" checked={!!g.showOnDash} onChange={() => toggleDash(g.id)} style={{ accentColor: '#8e44ad' }} />
@@ -1192,6 +1243,8 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
 // ─── Category management ──────────────────────────────────────────────────────
 
 function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   const [newCat, setNewCat] = useState('')
   const [renaming, setRenaming] = useState({})
   const [mergeTarget, setMergeTarget] = useState({})
@@ -1316,6 +1369,8 @@ function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, onSaveExpenseGroups }) {
+  const dark = useTheme()
+  const S = makeS(dark)
   return (
     <div>
       <CategoryMgmtSection cats={cats} txs={txs} onAddCat={onAddCat} onRenameCat={onRenameCat} onDeleteCat={onDeleteCat} />
