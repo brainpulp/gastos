@@ -81,7 +81,12 @@ function parseSantanderAR(workbook, usdRate) {
     const isXfer = /transferencia|pago tarjeta de cr[eé]dito|d[eé]b(?:ito)?\. autom[aá]tico/i.test(txType);
 
     // Amount may be in Caja de Ahorro (col 5) or Cuenta Corriente (col 6)
-    const ars = parseARS(r[5]) || parseARS(r[6]);
+    const rawArs = parseARS(r[5]) || parseARS(r[6]);
+
+    // Santander sometimes stores credit transactions (deposits, received transfers) as negative
+    // in the debit column. Force positive for descriptions that unambiguously mean money in.
+    const isCredit = /deposito de efectivo|transferencia recibida|cr[eé]dito transf/i.test(txType + ' ' + String(r[3] || ''));
+    const ars = isCredit ? Math.abs(rawArs) : rawArs;
 
     const referencia = String(r[4] || '0').trim();
 
