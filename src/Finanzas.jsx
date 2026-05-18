@@ -948,7 +948,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
                       </div>
                     ) : (<>
                       {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{tx.raw_desc}</div>}
+                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{tx.raw_desc}</div>}
                       {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                     </>)}
                   </td>
@@ -1082,7 +1082,7 @@ function RevisarTab({ txs, setTxs, badge, cats }) {
                 <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{fmtDate(tx.date)}</td>
                 <td style={{ ...S.td, maxWidth: 280 }}>
                   {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? '#666' : '#1a1a2e', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
+                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
                   {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
                 </td>
                 <td style={S.td}>
