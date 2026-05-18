@@ -955,7 +955,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ whiteSpace: 'nowrap' })} onClick={clickCell(tx, 'bank')}>
                     {editing
-                      ? <select style={{ ...iStyle, fontSize: 12 }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
+                      ? <select style={{ ...iStyle, fontSize: 12, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
                           <option value="">—</option>
                           {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
@@ -966,7 +966,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'cat')}>
                     {editing
-                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12 }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
+                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
                           <option value="">—</option>
                           {cats.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>

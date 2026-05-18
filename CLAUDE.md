@@ -24,17 +24,22 @@ Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages 
 | `supabase/functions/categorize-tx/index.ts` | Edge Function: validates JWT, calls Claude API, handles CORS |
 | `src/supabase.js` | Supabase client init |
 
-## DB schema — `transactions` table
+## DB schema — `transactions` table (full)
 ```
-id, date, ym (GENERATED), cat, bank, ars, usd, xfer,
-raw_desc, merchant, ai_assigned, needs_review, deleted_at,
-notes, usd_rate, user_id
+id, date, ym (GENERATED), year (GENERATED), cat, bank,
+ars, usd, usd_rate, xfer, raw_desc, merchant, referencia,
+notes, project, group_id, ai_assigned, ai_confidence,
+needs_review, deleted_at, created_at, user_id
 ```
 - `ym` and `year` are GENERATED ALWAYS — never insert them
 - ARS/USD sign: **negative = expense, positive = income**
 - Soft delete only (`deleted_at`); never hard-delete
 - `loadTransactions()` paginates in 1000-row chunks (7,800+ rows)
-- `normalizeTx()` in db.js converts camelCase upload fields → snake_case
+- `normalizeTx()` in db.js: strips camelCase fields (`rawDesc→raw_desc`, `usdRate→usd_rate`), passes `merchant` + `referencia` through `...rest`
+
+## Transaction ID prefixes
+- `b_*` — base migration from old minified app. Have **null** `merchant`, `raw_desc`, `referencia` by design (no source data).
+- `u_*` — Santander XLSX uploads. Have `raw_desc`, `merchant`, `referencia` from the parser.
 
 ## Other DB tables
 | Table | Purpose |
@@ -44,11 +49,10 @@ notes, usd_rate, user_id
 | `blue_rates` | Historical ARS/USD dólar blue rates `{date, rate}` |
 
 ## Component map (Finanzas.jsx)
-
 ```
 Finanzas (root)
   ├── MultiSelectFilter          — reusable multi-select dropdown
-  ├── DashTab                    — Dashboard: stats, stacked monthly chart, top-cat bar chart, scatter, Por categoría table
+  ├── DashTab                    — Dashboard: stats, stacked monthly chart, top-cat bar chart, scatter, Por categoría inline table
   ├── TxsTab                     — Transacciones: paginated table, inline row editing
   ├── RevisarTab                 — AI review queue (needs_review=true)
   ├── AuditoriaTab               — cat_log history
@@ -75,24 +79,30 @@ amountMin, amountMax, amountCur  // amount range filter
 activeTab, dark, uploadMsg
 
 // Derived
-filtered        // txs after all filters (xfer excluded)
-filterActive    // bool — any filter on?
-filterSummary   // { out, inc } USD totals of filtered set
-expenseTxs      // filtered, non-xfer
-totalesData     // per-cat {cat, usd, ars, count} sorted by |usd|
-catChart        // top 12 cats for bar chart
+filtered             // txs after all filters (xfer excluded)
+filterActive         // bool — any filter on?
+filterSummary        // { out, inc } USD totals of filtered set
+expenseTxs           // filtered, non-xfer
+totalesData          // per-cat {cat, usd, ars, count} sorted by |usd|
+catChart             // top 12 cats for bar chart
 monthlyStackedChart  // {data, cats} for stacked bar
-dashGroupStats  // per expense-group avg/total
+dashGroupStats       // per expense-group avg/total
 ```
 
 ## Key behaviors
 - **Click category badge** (Por categoría table or cat bar chart) → `goToCat(cat)` → sets `catFs=[cat]` + switches to Transacciones tab
 - **Click month bar** → `goToMonth(ym)` → sets `dateFrom`/`dateTo` to that month (stays on Dashboard)
 - **Filter summary bar** appears below filters when any filter is active; shows count, Gastos, Ingresos, Neto
-- **Dark mode** toggle, persisted in `localStorage('gastos-theme')`
-- **Upload** XLSX (Santander AR) → parse → upsert with deduplication (deterministic `id` per tx, skip soft-deleted)
-- **Inline row editing** in TxsTab: double-click or ✎ icon, Enter to save, calls `updateTransaction()`
-- **AI categorize** button in TxsTab → calls Edge Function `categorize-tx` with JWT
+- **Dark mode** toggle (◑), persisted in `localStorage('gastos-theme')`; ThemeCtx propagates via context to all sub-components
+- **Upload** XLSX (Santander AR) → parse → enrich with blueRates → categorize → upsert. Re-uploading same file is safe (deduplication on `id`).
+- **Inline row editing** in TxsTab: double-click or ✎ icon. `saveEdit` diffs all fields and calls `onUpdate`. `saveField` saves a single field immediately (bank, cat dropdowns).
+- **AI categorize** button → calls Edge Function `categorize-tx` with JWT
+
+## Dark mode + inline selects — IMPORTANT
+`iStyle` (used for inline edit inputs) sets `color: 'inherit'` and `background: 'transparent'`. For `<select>` elements this causes illegible text in dark mode because the native dropdown popup uses a light background but inherits the dark-mode light text color. **Always override explicitly on selects:**
+```jsx
+style={{ ...iStyle, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }}
+```
 
 ## Category management
 - Live list in `settings.cats`; `CATS` constant is the fallback
@@ -108,20 +118,20 @@ dashGroupStats  // per expense-group avg/total
 ## Deploy workflow
 ```bash
 # Any push to main triggers GitHub Actions → Vite build → gh-pages branch
-git add src/Finanzas.jsx   # or whatever changed
+git add src/Finanzas.jsx
 git commit -m "..."
 git push origin main
 # Supabase Edge Function (only when supabase/functions/* changed):
 supabase functions deploy categorize-tx
 ```
+**Always push to GitHub immediately after every change — no asking.**
 
-**Always push to GitHub after every change. Always deploy Edge Function when its file changes.**
-
-## Known issues / watch out
+## Known issues / open questions
+- `b_*` rows (base migration, ~4k rows) have null merchant/raw_desc — no source data to backfill from
+- `u_*` rows get descriptions on upload; re-uploading the same XLSX will upsert and fill them if missing
 - Upload parser only supports Santander Argentina XLSX format
-- `Liquidacion titulos publicos credi` txs (May 2025) may be miscategorized as "AR taxes"
 - `Roca deptos` / `deptos Roca` are duplicate categories — user is aware
-- `ars` field for Santander/Alina ML records was null until migration (May 2026) filled ~6,167 rows
+- `ars` field for Santander/Alina ML records was null until migration (May 2026)
 
 ## Local path
 `F:\google drive\My Drive\CURRENT\code\gastos\`
