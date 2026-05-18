@@ -35,11 +35,35 @@ needs_review, deleted_at, created_at, user_id
 - ARS/USD sign: **negative = expense, positive = income**
 - Soft delete only (`deleted_at`); never hard-delete
 - `loadTransactions()` paginates in 1000-row chunks (7,800+ rows)
-- `normalizeTx()` in db.js: strips camelCase fields (`rawDesc→raw_desc`, `usdRate→usd_rate`), passes `merchant` + `referencia` through `...rest`
+- `normalizeTx()` in db.js: strips camelCase (`rawDesc→raw_desc`, `usdRate→usd_rate`), passes `merchant`+`referencia` through `...rest`
 
-## Transaction ID prefixes
-- `b_*` — base migration from old minified app. Have **null** `merchant`, `raw_desc`, `referencia` by design (no source data).
-- `u_*` — Santander XLSX uploads. Have `raw_desc`, `merchant`, `referencia` from the parser.
+## Transaction ID prefixes & description status
+- `b_*` — base migration from old minified app. ALL 7,751 rows are `b_*`.
+  - `raw_desc`: populated for 7,471 rows (Santander format: `"TX TYPE \t MERCHANT"`)
+  - `merchant`: was null; **fixed 2026-05-18** via SQL — extracted from tab-separated raw_desc, stripped card numbers and CUIT suffixes. 1,684 rows now have merchant.
+  - Remaining rows without merchant: US bank format raw_desc (`"Debit Card Purchase #8381 ..."`) — display falls back to raw_desc correctly.
+- `u_*` — Santander XLSX uploads. Currently 0 rows — no XLSX files have been uploaded yet.
+
+## CRITICAL: description display in dark mode
+**Previously broken, fixed 2026-05-18.** The `raw_desc` display used hardcoded `color: '#1a1a2e'` (dark navy) when no merchant — invisible against dark card background.
+
+**Rule: never hardcode light-mode colors in inline styles inside TxsTab/RevisarTab.** Use `color: 'inherit'` or `S.td.color` or theme-conditional colors:
+```jsx
+// WRONG — invisible in dark mode:
+color: tx.merchant ? '#666' : '#1a1a2e'
+
+// RIGHT:
+color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit'
+```
+
+## CRITICAL: inline `<select>` in dark mode
+`iStyle` sets `color: 'inherit'` + `background: 'transparent'`. For `<select>` elements the native dropdown popup ignores these — it renders with OS/browser defaults (light background), inheriting the dark-mode text color → illegible text.
+
+**Always add explicit colors to any `<select>` that uses iStyle:**
+```jsx
+style={{ ...iStyle, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }}
+```
+This is already applied to bank and category selects in TxsTab.
 
 ## Other DB tables
 | Table | Purpose |
@@ -93,16 +117,10 @@ dashGroupStats       // per expense-group avg/total
 - **Click category badge** (Por categoría table or cat bar chart) → `goToCat(cat)` → sets `catFs=[cat]` + switches to Transacciones tab
 - **Click month bar** → `goToMonth(ym)` → sets `dateFrom`/`dateTo` to that month (stays on Dashboard)
 - **Filter summary bar** appears below filters when any filter is active; shows count, Gastos, Ingresos, Neto
-- **Dark mode** toggle (◑), persisted in `localStorage('gastos-theme')`; ThemeCtx propagates via context to all sub-components
+- **Dark mode** toggle (◑), persisted in `localStorage('gastos-theme')`; `ThemeCtx` propagates via context to all sub-components; `makeS(dark)` builds all styles
 - **Upload** XLSX (Santander AR) → parse → enrich with blueRates → categorize → upsert. Re-uploading same file is safe (deduplication on `id`).
-- **Inline row editing** in TxsTab: double-click or ✎ icon. `saveEdit` diffs all fields and calls `onUpdate`. `saveField` saves a single field immediately (bank, cat dropdowns).
+- **Inline row editing** in TxsTab: double-click or ✎ icon. `saveEdit` diffs all fields → `onUpdate`. `saveField` saves single field immediately (bank, cat dropdowns).
 - **AI categorize** button → calls Edge Function `categorize-tx` with JWT
-
-## Dark mode + inline selects — IMPORTANT
-`iStyle` (used for inline edit inputs) sets `color: 'inherit'` and `background: 'transparent'`. For `<select>` elements this causes illegible text in dark mode because the native dropdown popup uses a light background but inherits the dark-mode light text color. **Always override explicitly on selects:**
-```jsx
-style={{ ...iStyle, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }}
-```
 
 ## Category management
 - Live list in `settings.cats`; `CATS` constant is the fallback
@@ -124,13 +142,12 @@ git push origin main
 # Supabase Edge Function (only when supabase/functions/* changed):
 supabase functions deploy categorize-tx
 ```
-**Always push to GitHub immediately after every change — no asking.**
+**Always push to GitHub immediately after every change — no asking, no confirming.**
 
 ## Known issues / open questions
-- `b_*` rows (base migration, ~4k rows) have null merchant/raw_desc — no source data to backfill from
-- `u_*` rows get descriptions on upload; re-uploading the same XLSX will upsert and fill them if missing
 - Upload parser only supports Santander Argentina XLSX format
 - `Roca deptos` / `deptos Roca` are duplicate categories — user is aware
+- ~6,000 rows have US-bank-format raw_desc with no merchant extracted yet (shows raw_desc as fallback — readable but verbose)
 - `ars` field for Santander/Alina ML records was null until migration (May 2026)
 
 ## Local path
