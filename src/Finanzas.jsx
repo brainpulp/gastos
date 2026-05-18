@@ -429,6 +429,7 @@ export default function Finanzas({ session, onLogout }) {
   const goToCat = (cat) => {
     if (!cat) return
     setCatFs([cat])
+    setActiveTab('txs')
   }
 
   const cats = useMemo(
@@ -801,7 +802,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
             <tbody>
               {totalesData.map(row => (
                 <tr key={row.cat}>
-                  <td style={S.td}><span style={badge(row.cat)}>{row.cat}</span></td>
+                  <td style={S.td}><span style={{ ...badge(row.cat), cursor: 'pointer' }} onClick={() => onCatClick(row.cat)}>{row.cat}</span></td>
                   <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
                   <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
                   <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
