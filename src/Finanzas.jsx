@@ -885,7 +885,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     setEditingId(null); setFocusField(null)
   }
   const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
-  const iStyle = { padding: 0, border: 'none', borderBottom: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`, borderRadius: 0, background: 'transparent', color: 'inherit', width: '100%', outline: 'none', fontFamily: 'inherit' }
+  const iStyle = { padding: 0, margin: 0, border: 'none', borderBottom: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`, borderRadius: 0, background: 'transparent', color: 'inherit', width: '100%', outline: 'none', fontFamily: 'inherit', lineHeight: '1.4', height: '1.4em', boxSizing: 'content-box', display: 'block' }
 
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
@@ -928,7 +928,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing
-                      ? <input type="date" style={{ ...iStyle, fontSize: 12, width: 130 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'date'} />
+                      ? <input type="text" style={{ ...iStyle, fontSize: 12, width: 100 }} value={editState.date} onChange={set('date')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'date'} placeholder="YYYY-MM-DD" />
                       : fmtDate(tx.date)}
                   </td>
 
@@ -946,7 +946,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({ whiteSpace: 'nowrap' })} onClick={clickCell(tx, 'bank')}>
                     {editing
-                      ? <select style={{ ...iStyle, fontSize: 12, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
+                      ? <select style={{ ...iStyle, fontSize: 12, height: 'auto', background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
                           <option value="">—</option>
                           {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
@@ -957,7 +957,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'cat')}>
                     {editing
-                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12, background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
+                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12, height: 'auto', background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
                           <option value="">—</option>
                           {cats.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
