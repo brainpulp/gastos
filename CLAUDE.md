@@ -152,4 +152,4 @@ supabase functions deploy categorize-tx
 - `ars` field for Santander/Alina ML records was null until migration (May 2026)
 
 ## Local path
-`F:\google drive\My Drive\CURRENT\code\gastos\`
+`F:\code\gastos\`
