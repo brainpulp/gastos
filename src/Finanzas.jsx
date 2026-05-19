@@ -348,7 +348,7 @@ export default function Finanzas({ session, onLogout }) {
   const monthlyStackedChart = useMemo(() => {
     const catTotals = {}
     for (const tx of expenseTxs) {
-      const cat = tx.cat || 'Sin cat'
+      const cat = (tx.cat && tx.cat !== 'null') ? tx.cat : 'Sin cat'
       catTotals[cat] = (catTotals[cat] || 0) + Math.abs(tx.usd || 0)
     }
     const topCats = Object.entries(catTotals)
@@ -360,7 +360,7 @@ export default function Finanzas({ session, onLogout }) {
     for (const tx of expenseTxs) {
       if (!tx.ym) continue
       if (!byMonth[tx.ym]) byMonth[tx.ym] = { ym: tx.ym, label: tx.ym }
-      const cat = tx.cat || 'Sin cat'
+      const cat = (tx.cat && tx.cat !== 'null') ? tx.cat : 'Sin cat'
       const key = topCats.includes(cat) ? cat : 'Otros'
       byMonth[tx.ym][key] = (byMonth[tx.ym][key] || 0) + Math.abs(tx.usd || 0)
     }
@@ -374,14 +374,14 @@ export default function Finanzas({ session, onLogout }) {
   const catChart = useMemo(() => {
     const grouped = _.groupBy(expenseTxs, 'cat')
     return Object.entries(grouped)
-      .map(([cat, rows]) => ({ cat: cat || 'Sin cat', usd: Math.abs(_.sumBy(rows, 'usd')) }))
+      .map(([cat, rows]) => ({ cat: (cat && cat !== 'null') ? cat : 'Sin cat', usd: Math.abs(_.sumBy(rows, 'usd')) }))
       .sort((a, b) => b.usd - a.usd).slice(0, 12)
   }, [expenseTxs])
 
   const totalesData = useMemo(() => {
     const grouped = _.groupBy(filtered.filter(t => !t.xfer), 'cat')
     return Object.entries(grouped)
-      .map(([cat, rows]) => ({ cat: cat || 'Sin cat', usd: _.sumBy(rows, 'usd'), ars: _.sumBy(rows, 'ars'), count: rows.length }))
+      .map(([cat, rows]) => ({ cat: (cat && cat !== 'null') ? cat : 'Sin cat', usd: _.sumBy(rows, 'usd'), ars: _.sumBy(rows, 'ars'), count: rows.length }))
       .sort((a, b) => a.usd - b.usd)
   }, [filtered])
 
