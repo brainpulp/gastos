@@ -826,6 +826,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   const [focusField, setFocusField] = useState(null)
   const [editState, setEditState] = useState({})
   const [page, setPage] = useState(1)
+  const rowRefs = useRef({})
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
   const PAGE = 100
 
@@ -844,6 +845,9 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   const visible = sorted.slice(0, page * PAGE)
 
   const startEdit = (tx, field = 'merchant') => {
+    // Lock the row height before swapping content so it can't jump
+    const el = rowRefs.current[tx.id]
+    if (el) el.style.height = el.getBoundingClientRect().height + 'px'
     setEditingId(tx.id)
     setFocusField(field)
     setEditState({
@@ -858,7 +862,8 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     })
   }
 
-  const cancelEdit = () => { setEditingId(null); setFocusField(null) }
+  const unlockRow = (id) => { const el = rowRefs.current[id]; if (el) el.style.height = '' }
+  const cancelEdit = () => { unlockRow(editingId); setEditingId(null); setFocusField(null) }
 
   const saveEdit = async (tx) => {
     const changes = {}
@@ -872,6 +877,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     }
     if ('cat' in changes) changes.ai_assigned = false
     if (Object.keys(changes).length > 0) await onUpdate(tx.id, changes)
+    unlockRow(tx.id)
     setEditingId(null)
     setFocusField(null)
   }
@@ -882,6 +888,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
     const changes = { [field]: value || null }
     if (field === 'cat') changes.ai_assigned = false
     await onUpdate(tx.id, changes)
+    unlockRow(tx.id)
     setEditingId(null); setFocusField(null)
   }
   const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
@@ -924,7 +931,7 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
               const editing = editingId === tx.id
               const bs = BANK_STYLE[tx.bank]
               return (
-                <tr key={tx.id} style={{ background: editing ? (dark ? '#1a1f3a' : '#f0f7ff') : undefined }}>
+                <tr key={tx.id} ref={el => rowRefs.current[tx.id] = el} style={{ background: editing ? (dark ? '#1a1f3a' : '#f0f7ff') : undefined }}>
 
                   <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing
