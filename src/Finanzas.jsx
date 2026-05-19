@@ -933,20 +933,11 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
                   </td>
 
                   <td style={cellStyle({})} onClick={clickCell(tx, 'merchant')}>
-                    {editing ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <input style={{ ...iStyle, fontWeight: 600, fontSize: 13 }} placeholder="Comercio" value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
-                        <textarea
-                          style={{ ...iStyle, fontSize: 12, color: editState.merchant ? '#666' : '#1a1a2e', whiteSpace: 'pre-wrap', wordBreak: 'break-word', resize: 'none', overflow: 'hidden' }}
-                          placeholder="Descripción"
-                          value={editState.raw_desc}
-                          rows={(editState.raw_desc || '').split('\n').length || 1}
-                          onChange={set('raw_desc')}
-                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(tx) } else if (e.key === 'Escape') cancelEdit() }}
-                        />
-                        {tx.referencia && <div style={{ fontSize: 11, color: '#aaa' }}>{tx.referencia}</div>}
-                      </div>
-                    ) : (<>
+                    {editing ? (<>
+                      <input style={{ ...iStyle, fontWeight: 600, fontSize: 13 }} value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
+                      {tx.raw_desc && <div style={{ fontSize: 12, color: dark ? '#8a8aaa' : '#666', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.raw_desc}</div>}
+                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa' }}>{tx.referencia}</div>}
+                    </>) : (<>
                       {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
                       {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{tx.raw_desc}</div>}
                       {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
