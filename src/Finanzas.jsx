@@ -1321,6 +1321,7 @@ function CategoryGroupsSection({ expenseGroups, onSave }) {
 function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) {
   const dark = useTheme()
   const S = makeS(dark)
+  const [open, setOpen] = useState(false)
   const [newCat, setNewCat] = useState('')
   const [renaming, setRenaming] = useState({})
   const [mergeTarget, setMergeTarget] = useState({})
@@ -1376,8 +1377,12 @@ function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) 
 
   return (
     <div style={S.card}>
-      <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Categorías</h3>
-      <p style={{ fontSize: 13, color: '#888', margin: '0 0 14px' }}>Agregá, renombrá, fusioná o eliminá categorías. Renombrar y fusionar actualiza todas las transacciones.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Categorías ({cats.length})</h3>
+        <span style={{ fontSize: 12, color: '#888' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && <>
+      <p style={{ fontSize: 13, color: '#888', margin: '8px 0 14px' }}>Agregá, renombrá, fusioná o eliminá categorías. Renombrar y fusionar actualiza todas las transacciones.</p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input style={{ ...S.input, flex: 1, maxWidth: 280 }} placeholder="Nueva categoría…"
           value={newCat} onChange={e => setNewCat(e.target.value)}
@@ -1438,6 +1443,7 @@ function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) 
           </tbody>
         </table>
       </div>
+      </>}
     </div>
   )
 }
@@ -1452,11 +1458,10 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
       <CategoryMgmtSection cats={cats} txs={txs} onAddCat={onAddCat} onRenameCat={onRenameCat} onDeleteCat={onDeleteCat} />
       <CategoryGroupsSection expenseGroups={settings?.expense_groups ?? []} onSave={onSaveExpenseGroups} />
       <div style={S.card}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio histórico</h3>
+        <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio</h3>
         <p style={{ fontSize: 13, color: '#888', margin: 0 }}>
-          El tipo de cambio se obtiene automáticamente de Bluelytics (dólar blue) al importar cada archivo.
-          Tasa de referencia actual:{' '}
-          <strong>ARS {settings?.usd_rate ?? '—'} / USD</strong>
+          Al importar un archivo XLSX, el tipo de cambio dólar blue se obtiene automáticamente de la tabla <code>blue_rates</code> según la fecha de cada transacción.
+          Los valores USD de las transacciones existentes (migración base) fueron calculados por la app anterior y tienen tasa desconocida.
         </p>
       </div>
     </div>
