@@ -876,14 +876,13 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
   const saveEdit = async (tx) => {
     const changes = {}
     const numFields = new Set(['ars', 'usd'])
-    for (const f of ['date', 'merchant', 'raw_desc', 'bank', 'cat', 'ars', 'usd', 'notes']) {
+    for (const f of ['date', 'merchant', 'raw_desc', 'ars', 'usd', 'notes']) {
       const orig = tx[f] != null ? String(tx[f]) : ''
       const next = String(editState[f] ?? '')
       if (next !== orig) {
         changes[f] = numFields.has(f) ? (editState[f] === '' ? null : parseFloat(editState[f])) : (editState[f] || null)
       }
     }
-    if ('cat' in changes) changes.ai_assigned = false
     if (Object.keys(changes).length > 0) await onUpdate(tx.id, changes)
     unlockRow(tx.id)
     setEditingId(null)
@@ -1011,27 +1010,45 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
                     </>)}
                   </td>
 
-                  <td style={cellStyle({ whiteSpace: 'nowrap' })} onClick={clickCell(tx, 'bank')}>
-                    {editing
-                      ? <select style={{ ...iStyle, fontSize: 12, height: 'auto', background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} value={editState.bank} onChange={(e) => saveField(tx, 'bank', e.target.value)} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'bank'}>
-                          <option value="">—</option>
-                          {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                      : tx.bank
-                        ? <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, ...(bs ?? { background: '#f0f0f0', color: '#555' }) }}>{tx.bank}</span>
-                        : <span style={{ color: '#bbb' }}>—</span>}
+                  <td style={cellStyle({ whiteSpace: 'nowrap' })}>
+                    {/* Bank — always a select so row height never changes */}
+                    <select
+                      value={editing ? editState.bank : (tx.bank || '')}
+                      onChange={(e) => saveField(tx, 'bank', e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && cancelEdit()}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        fontSize: 11, fontWeight: 600, borderRadius: 10,
+                        padding: '2px 6px', border: 'none', outline: 'none', cursor: 'pointer',
+                        ...(tx.bank ? (bs ?? { background: '#f0f0f0', color: '#555' }) : { background: 'transparent', color: dark ? '#666' : '#bbb' }),
+                      }}
+                    >
+                      <option value="">—</option>
+                      {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
                   </td>
 
-                  <td style={cellStyle({})} onClick={clickCell(tx, 'cat')}>
-                    {editing
-                      ? <select value={editState.cat} onChange={(e) => saveField(tx, 'cat', e.target.value)} style={{ ...iStyle, maxWidth: 170, fontSize: 12, height: 'auto', background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }} onKeyDown={(e) => e.key === 'Escape' && cancelEdit()} autoFocus={focusField === 'cat'}>
-                          <option value="">—</option>
-                          {cats.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      : <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
-                          {tx.cat ? <span style={badge(tx.cat)}>{tx.cat}</span> : <span style={{ color: '#bbb', fontSize: 12 }}>—</span>}
-                        </div>}
+                  <td style={cellStyle({})}>
+                    {/* Cat — always a select so row height never changes */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
+                      <select
+                        value={editing ? editState.cat : (tx.cat || '')}
+                        onChange={(e) => saveField(tx, 'cat', e.target.value)}
+                        onKeyDown={(e) => e.key === 'Escape' && cancelEdit()}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          fontSize: 11, fontWeight: 500, borderRadius: 10,
+                          padding: '2px 6px', border: 'none', outline: 'none', cursor: 'pointer',
+                          maxWidth: 170,
+                          background: tx.cat ? catColor(tx.cat, 0.15) : (dark ? '#1a1a2e' : 'transparent'),
+                          color: tx.cat ? catColor(tx.cat, 0.85) : (dark ? '#555' : '#bbb'),
+                        }}
+                      >
+                        <option value="">—</option>
+                        {cats.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
                   </td>
 
                   <td style={cellStyle({ textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS), fontSize: 13 })} onClick={clickCell(tx, 'ars')}>
