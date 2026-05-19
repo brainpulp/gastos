@@ -126,6 +126,7 @@ dashGroupStats       // per expense-group avg/total
 - Live list in `settings.cats`; `CATS` constant is the fallback
 - `bulkUpdateCat(oldCat, newCat)` handles rename/merge/delete across all transactions
 - **Known duplicates in DB**: `Roca deptos` and `deptos Roca` — user may want to merge
+- **AI-assigned categories are prefixed with 🤖** (e.g. `"🤖 Dining"`). This is intentional — makes them visually distinct in the UI. The `ai_assigned = true` flag is the DB-level signal; the emoji is the UI-level signal. To undo all AI cats: `UPDATE transactions SET cat = NULL, ai_assigned = false, ai_confidence = NULL, needs_review = false WHERE ai_assigned = true AND deleted_at IS NULL`
 
 ## Recharts pattern (v3.8.1)
 - `onClick` on `<Bar>`, not `<BarChart>`
