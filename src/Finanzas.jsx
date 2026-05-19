@@ -843,7 +843,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
     const mul = dir === 'asc' ? 1 : -1
     return [...txs].sort((a, b) => {
       let av = a[col], bv = b[col]
-      if (col === 'usd' || col === 'ars') { av = Math.abs(av ?? 0); bv = Math.abs(bv ?? 0) }
+      if (col === 'usd' || col === 'ars') { av = av ?? 0; bv = bv ?? 0 }
       if (av == null) return 1
       if (bv == null) return -1
       return av < bv ? -mul : av > bv ? mul : 0
