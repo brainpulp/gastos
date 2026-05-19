@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx'
 import { parseXLSX } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
-  bulkUpdateCat, loadSettings, saveSettings, loadCatLog, loadBlueRates,
+  bulkUpdateCat, bulkUpdateByIds, loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
 
@@ -441,6 +441,11 @@ export default function Finanzas({ session, onLogout }) {
     await updateTransaction(id, changes)
     setTxs(prev => prev.map(t => t.id === id ? { ...t, ...changes } : t))
   }
+  const bulkUpdateTxs = async (ids, fields) => {
+    const idSet = new Set(ids)
+    await bulkUpdateByIds(ids, fields)
+    setTxs(prev => prev.map(t => idSet.has(t.id) ? { ...t, ...fields } : t))
+  }
   const deleteTx = async (id) => {
     if (!confirm('¿Ocultar esta transacción? (soft delete — no se pierde el historial)')) return
     await softDeleteTransaction(id)
@@ -601,7 +606,7 @@ export default function Finanzas({ session, onLogout }) {
             onCatClick={goToCat}
           />
         )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} badge={badge} cats={cats} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'settings' && <SettingsTab
@@ -819,13 +824,16 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
+function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
   const dark = useTheme()
   const S = makeS(dark)
   const [editingId, setEditingId] = useState(null)
   const [focusField, setFocusField] = useState(null)
   const [editState, setEditState] = useState({})
   const [page, setPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkCat, setBulkCat] = useState('')
+  const [bulkApplying, setBulkApplying] = useState(false)
   const rowRefs = useRef({})
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
   const PAGE = 100
@@ -894,6 +902,24 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
   const clickCell = (tx, field) => (e) => { e.stopPropagation(); if (editingId !== tx.id) startEdit(tx, field) }
   const iStyle = { padding: 0, margin: 0, border: 'none', borderBottom: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`, borderRadius: 0, background: 'transparent', color: 'inherit', width: '100%', outline: 'none', fontFamily: 'inherit', lineHeight: '1.4', height: '1.4em', boxSizing: 'content-box', display: 'block' }
 
+  // ── Bulk selection ─────────────────────────────────────────────────────────
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next
+  })
+  const allVisibleSelected = visible.length > 0 && visible.every(tx => selectedIds.has(tx.id))
+  const someVisibleSelected = visible.some(tx => selectedIds.has(tx.id))
+  const selectAllVisible = () => setSelectedIds(prev => { const next = new Set(prev); visible.forEach(tx => next.add(tx.id)); return next })
+  const selectAllFiltered = () => setSelectedIds(new Set(txs.map(t => t.id)))
+  const clearSelection = () => setSelectedIds(new Set())
+  const applyBulkCat = async () => {
+    if (!bulkCat || !selectedIds.size) return
+    setBulkApplying(true)
+    try {
+      await onBulkUpdate([...selectedIds], { cat: bulkCat, ai_assigned: false })
+      clearSelection(); setBulkCat('')
+    } finally { setBulkApplying(false) }
+  }
+
   const SortTh = ({ col, label, align }) => {
     const active = sort.col === col
     return (
@@ -912,10 +938,39 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
         <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{txs.length} transacciones</h3>
         <span style={{ fontSize: 11, color: '#bbb' }}>click en cualquier campo para editar · Enter para guardar</span>
       </div>
+
+      {selectedIds.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: dark ? '#1a2040' : '#e8f0fe', borderRadius: 8, flexWrap: 'wrap', border: `1px solid ${dark ? '#2a3a7e' : '#c5d8fc'}` }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: dark ? '#a0c0ff' : '#1a56db' }}>{selectedIds.size} seleccionadas</span>
+          <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={clearSelection}>✕ Limpiar</button>
+          {selectedIds.size < txs.length && (
+            <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={selectAllFiltered}>Seleccionar todas ({txs.length})</button>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: dark ? '#aaa' : '#555' }}>Cambiar categoría:</span>
+          <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
+            style={{ ...S.select, fontSize: 12, padding: '3px 8px', background: dark ? '#1a1a2e' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }}>
+            <option value="">— elegir —</option>
+            {cats.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button disabled={!bulkCat || bulkApplying}
+            style={{ ...S.btn('primary'), padding: '4px 14px', fontSize: 12, opacity: (!bulkCat || bulkApplying) ? 0.5 : 1, cursor: (!bulkCat || bulkApplying) ? 'default' : 'pointer' }}
+            onClick={applyBulkCat}>{bulkApplying ? 'Aplicando…' : 'Aplicar'}</button>
+        </div>
+      )}
+
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
           <thead>
             <tr>
+              <th style={{ ...S.th, width: 32, paddingRight: 4, paddingLeft: 8 }}>
+                <input type="checkbox"
+                  checked={allVisibleSelected}
+                  ref={el => { if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected }}
+                  onChange={e => e.target.checked ? selectAllVisible() : clearSelection()}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <SortTh col="date" label="Fecha" />
               <th style={S.th}>Comercio / Descripción</th>
               <SortTh col="bank" label="Banco" />
@@ -930,8 +985,13 @@ function TxsTab({ txs, onUpdate, onDelete, badge, cats }) {
             {visible.map(tx => {
               const editing = editingId === tx.id
               const bs = BANK_STYLE[tx.bank]
+              const selected = selectedIds.has(tx.id)
               return (
-                <tr key={tx.id} ref={el => rowRefs.current[tx.id] = el} style={{ background: editing ? (dark ? '#1a1f3a' : '#f0f7ff') : undefined }}>
+                <tr key={tx.id} ref={el => rowRefs.current[tx.id] = el} style={{ background: editing ? (dark ? '#1a1f3a' : '#f0f7ff') : selected ? (dark ? '#121d35' : '#f0f4ff') : undefined }}>
+
+                  <td style={{ ...S.td, width: 32, paddingRight: 4, paddingLeft: 8 }} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected} onChange={() => toggleSelect(tx.id)} style={{ cursor: 'pointer' }} />
+                  </td>
 
                   <td style={cellStyle({ whiteSpace: 'nowrap', color: '#888', fontSize: 12 })} onClick={clickCell(tx, 'date')}>
                     {editing

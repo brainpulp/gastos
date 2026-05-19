@@ -94,6 +94,20 @@ export async function bulkUpdateCat(oldCat, newCat) {
   if (error) throw error
 }
 
+/** Bulk update fields on a specific set of transaction IDs */
+export async function bulkUpdateByIds(ids, fields) {
+  if (!ids.length) return
+  const CHUNK = 200
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('transactions')
+      .update(fields)
+      .in('id', ids.slice(i, i + CHUNK))
+      .is('deleted_at', null)
+    if (error) throw error
+  }
+}
+
 /** Update arbitrary fields on a transaction */
 export async function updateTransaction(id, fields) {
   const { error } = await supabase
