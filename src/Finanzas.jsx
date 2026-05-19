@@ -719,9 +719,11 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
                 <Tooltip formatter={(v) => fmtUSD(v)} />
-                <Bar dataKey="usd" fill="#e67e22" radius={[0, 3, 3, 0]} name="USD"
+                <Bar dataKey="usd" radius={[0, 3, 3, 0]} name="USD"
                   style={{ cursor: 'pointer' }}
-                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }} />
+                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }}>
+                  {catChart.map(entry => <Cell key={entry.cat} fill={catColor(entry.cat, 0.82)} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
