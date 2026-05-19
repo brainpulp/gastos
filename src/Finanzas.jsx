@@ -1460,8 +1460,9 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
       <div style={S.card}>
         <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Tipo de cambio</h3>
         <p style={{ fontSize: 13, color: '#888', margin: 0 }}>
-          Al importar un archivo XLSX, el tipo de cambio dólar blue se obtiene automáticamente de la tabla <code>blue_rates</code> según la fecha de cada transacción.
-          Los valores USD de las transacciones existentes (migración base) fueron calculados por la app anterior y tienen tasa desconocida.
+          Cada transacción con ARS tiene su tipo de cambio dólar blue almacenado según la fecha exacta (tabla <code>blue_rates</code>).
+          Las 1.584 transacciones sin ARS (bancos en USD) mantienen sus valores USD originales.
+          Al importar XLSX, la tasa también se asigna por fecha automáticamente.
         </p>
       </div>
     </div>
