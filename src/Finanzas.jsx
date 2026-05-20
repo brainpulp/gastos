@@ -1000,15 +1000,15 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
                       : fmtDate(tx.date)}
                   </td>
 
-                  <td style={cellStyle({})} onClick={clickCell(tx, 'merchant')}>
+                  <td style={cellStyle({ maxWidth: 320 })} onClick={clickCell(tx, 'merchant')}>
                     {editing ? (<>
                       <input style={{ ...iStyle, fontWeight: 600, fontSize: 13 }} value={editState.merchant} onChange={set('merchant')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'merchant'} />
                       {tx.raw_desc && <div style={{ fontSize: 12, color: dark ? '#8a8aaa' : '#666', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.raw_desc}</div>}
-                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa' }}>{tx.referencia}</div>}
+                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.referencia}</div>}
                     </>) : (<>
-                      {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{tx.raw_desc}</div>}
-                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
+                      {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.merchant}</div>}
+                      {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.raw_desc}</div>}
+                      {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.referencia}</div>}
                     </>)}
                   </td>
 
@@ -1030,7 +1030,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
                     </select>
                   </td>
 
-                  <td style={cellStyle({})}>
+                  <td style={cellStyle({ whiteSpace: 'nowrap' })}>
                     {/* Cat — always a select so row height never changes */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       {tx.ai_assigned && <span title="Categoría asignada automáticamente" style={{ fontSize: 13, lineHeight: 1 }}>🤖</span>}
