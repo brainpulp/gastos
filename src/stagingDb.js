@@ -209,6 +209,66 @@ export async function bulkConfirmHighConfidence(sourceId, minConfidence = 0.8) {
   return links.length
 }
 
+// ─── Merge ───────────────────────────────────────────────────────────────────
+
+const XFER_CATEGORIES = new Set(['Transfer', 'Credit Card Payment'])
+
+/**
+ * Insert staging rows marked 'new' into the main transactions table.
+ * @param newRows  — staging_transaction rows already filtered to status='new' (with .link)
+ * @param sourceType — 'mint' | 'personal_capital' | etc (used as bank field)
+ * @param blueRates  — { 'YYYY-MM-DD': rate } for ars/usd_rate lookup
+ * @returns count of rows inserted
+ */
+export async function mergeStagingNew(newRows, sourceType, blueRates = {}) {
+  if (!newRows.length) return 0
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const txRows = newRows.map(row => {
+    const rate = blueRates[row.date] ?? null
+    const usd  = row.amount ?? 0
+    return {
+      id:          `f_${row.id}`,
+      user_id:     user.id,
+      date:        row.date,
+      usd:         +usd.toFixed(2),
+      usd_rate:    rate,
+      ars:         rate != null ? +(usd * rate).toFixed(2) : null,
+      raw_desc:    row.orig_description || row.description || null,
+      merchant:    row.description || null,
+      bank:        sourceType,
+      cat:         null,
+      xfer:        XFER_CATEGORIES.has(row.category),
+      needs_review: false,
+      ai_assigned: false,
+      notes:       row.account ? `Account: ${row.account}` : null,
+    }
+  })
+
+  // Upsert in chunks (safe to re-run — on conflict id, update in place)
+  const CHUNK = 200
+  for (let i = 0; i < txRows.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('transactions')
+      .upsert(txRows.slice(i, i + CHUNK), { onConflict: 'id' })
+    if (error) throw error
+  }
+
+  // Mark forensic_links as 'merged'
+  const linkIds = newRows.map(r => r.link?.id).filter(Boolean)
+  if (linkIds.length) {
+    for (let i = 0; i < linkIds.length; i += CHUNK) {
+      const { error } = await supabase
+        .from('forensic_links')
+        .update({ status: 'merged', decided_at: new Date().toISOString() })
+        .in('id', linkIds.slice(i, i + CHUNK))
+      if (error) throw error
+    }
+  }
+
+  return txRows.length
+}
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
 export async function loadSourceStats(sourceId) {

@@ -17,6 +17,7 @@ import { detectSourceType, parseStaging, autoMatch } from './stagingParser.js'
 import {
   loadStagingSources, importStagingSource, deleteStagingSource,
   loadAllStagingRows, saveDecision, saveAutoMatches, bulkConfirmHighConfidence,
+  mergeStagingNew,
 } from './stagingDb.js'
 
 const ThemeCtx = createContext(false)
@@ -615,7 +616,7 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
-        {activeTab === 'forensic' && <ForensicTab txs={txs} />}
+        {activeTab === 'forensic' && <ForensicTab txs={txs} blueRates={blueRates} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
           cats={cats}
@@ -1489,6 +1490,7 @@ const STATUS_LABELS = {
   no_match:   { label: '✗ No match', color: '#e74c3c' },
   new:        { label: '+ Nuevo',     color: '#3498db' },
   excluded:   { label: '— Excluir',  color: '#aaa' },
+  merged:     { label: '↑ Merged',   color: '#8e44ad' },
 }
 
 function ConfidenceBar({ value }) {
@@ -1504,7 +1506,7 @@ function ConfidenceBar({ value }) {
   )
 }
 
-function ForensicTab({ txs }) {
+function ForensicTab({ txs, blueRates = {} }) {
   const dark = useTheme()
   const S = makeS(dark)
   const inputBg  = dark ? '#12121f' : '#fff'
@@ -1523,6 +1525,7 @@ function ForensicTab({ txs }) {
   const [msg, setMsg]                 = useState(null) // { text, error? }
   const [matching, setMatching]       = useState(false)
   const [importing, setImporting]     = useState(false)
+  const [merging, setMerging]         = useState(false)
   const [pendingImport, setPendingImport] = useState(null) // { rows, sourceType, fileName }
   const [importName, setImportName]   = useState('')
   const fileRef = useRef()
@@ -1562,7 +1565,7 @@ function ForensicTab({ txs }) {
 
   // ── Status counts ─────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { all: allRows.length, unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0 }
+    const c = { all: allRows.length, unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0, merged: 0 }
     for (const r of allRows) {
       const s = r.link?.status ?? 'unreviewed'
       c[s] = (c[s] || 0) + 1
@@ -1650,6 +1653,26 @@ function ForensicTab({ txs }) {
       setMsg({ text: `✓ ${n} filas confirmadas como "matched".` })
     } catch (err) {
       setMsg({ text: err.message, error: true })
+    }
+  }
+
+  // ── Merge 'new' rows into transactions ───────────────────────────────────
+  const runMerge = async () => {
+    const newRows = allRows.filter(r => r.link?.status === 'new')
+    if (!newRows.length) return
+    const src = sources.find(s => s.id === activeSrcId)
+    if (!confirm(`¿Insertar ${newRows.length} transacciones en el DB principal?`)) return
+    setMerging(true)
+    setMsg({ text: `Insertando ${newRows.length} transacciones…` })
+    try {
+      const n = await mergeStagingNew(newRows, src?.source_type ?? 'unknown', blueRates)
+      const refreshed = await loadAllStagingRows(activeSrcId)
+      setAllRows(refreshed)
+      setMsg({ text: `✓ ${n} transacciones insertadas. Recargá la página para verlas en Transacciones.` })
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -1765,6 +1788,12 @@ function ForensicTab({ txs }) {
               onClick={runBulkConfirm} disabled={counts.pending === 0}>
               ✓ Confirmar ≥80% ({counts.pending} pendientes)
             </button>
+            {counts.new > 0 && (
+              <button style={{ ...S.btn('primary'), fontSize: 12 }}
+                onClick={runMerge} disabled={merging}>
+                {merging ? '⏳ Insertando…' : `↑ Merge ${counts.new} nuevas`}
+              </button>
+            )}
           </div>
 
           {/* Status filter tabs */}
@@ -1777,6 +1806,7 @@ function ForensicTab({ txs }) {
               ['no_match',   `✗ No match (${counts.no_match})`],
               ['new',        `+ Nuevo (${counts.new})`],
               ['excluded',   `Excluir (${counts.excluded})`],
+              ['merged',     `↑ Merged (${counts.merged ?? 0})`],
             ].map(([key, label]) => (
               <button key={key}
                 style={{ ...S.btnSm(statusFilter === key ? 'active' : 'ghost'), fontSize: 12 }}
