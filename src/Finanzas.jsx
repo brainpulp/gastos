@@ -17,7 +17,7 @@ import { detectSourceType, parseStaging, autoMatch } from './stagingParser.js'
 import {
   loadStagingSources, importStagingSource, deleteStagingSource,
   loadAllStagingRows, saveDecision, saveAutoMatches, bulkConfirmHighConfidence,
-  mergeStagingNew,
+  mergeStagingNew, loadSourceStats,
 } from './stagingDb.js'
 
 const ThemeCtx = createContext(false)
@@ -1506,6 +1506,83 @@ function ConfidenceBar({ value }) {
   )
 }
 
+// ─── MatchPicker — inline manual match search ─────────────────────────────────
+function MatchPicker({ stagingRow, txs, onSelect, onClose }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const muted  = dark ? '#8a8aaa' : '#888'
+  const text   = dark ? '#e0e0e0' : '#1a1a2e'
+  const inputBg  = dark ? '#12121f' : '#fff'
+  const inputBdr = dark ? '#2a2a3e' : '#ddd'
+  const hoverBg  = dark ? '#1a2a3a' : '#eff6ff'
+
+  const [search, setSearch] = useState('')
+  const inputRef = useRef()
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const baseDate = useMemo(() => new Date(stagingRow.date + 'T12:00:00'), [stagingRow.date])
+
+  const candidates = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    const results = txs.filter(tx => {
+      if (tx.deleted_at) return false
+      const daysDiff = Math.abs((new Date(tx.date + 'T12:00:00') - baseDate) / 86400000)
+      if (daysDiff > 14) return false
+      if (!q) return true
+      return (tx.merchant || '').toLowerCase().includes(q) ||
+             (tx.raw_desc  || '').toLowerCase().includes(q)
+    })
+    results.sort((a, b) =>
+      Math.abs(new Date(a.date + 'T12:00:00') - baseDate) -
+      Math.abs(new Date(b.date + 'T12:00:00') - baseDate)
+    )
+    return results.slice(0, 12)
+  }, [txs, baseDate, search])
+
+  return (
+    <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8,
+      background: dark ? '#0f1a2a' : '#f0f7ff',
+      border: `1px solid ${dark ? '#2a5a8a' : '#bfdbfe'}` }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: muted, flexShrink: 0 }}>
+          Buscar tx ±14 días de {stagingRow.date}:
+        </span>
+        <input ref={inputRef} value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="descripción / merchant…"
+          style={{ flex: 1, padding: '4px 8px', borderRadius: 6, fontSize: 12,
+            border: `1px solid ${inputBdr}`, background: inputBg, color: text,
+            outline: 'none' }} />
+        <button onClick={onClose} style={{ ...S.btnSm(), fontSize: 11 }}>✕ Cerrar</button>
+      </div>
+      {candidates.length === 0 && (
+        <div style={{ fontSize: 12, color: muted, padding: '4px 0' }}>
+          Sin resultados. Probá ampliar la búsqueda.
+        </div>
+      )}
+      {candidates.map(tx => (
+        <div key={tx.id} onClick={() => onSelect(tx)}
+          style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '5px 8px',
+            borderRadius: 6, cursor: 'pointer', fontSize: 12,
+            transition: 'background 0.1s' }}
+          onMouseEnter={e => e.currentTarget.style.background = hoverBg}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+          <span style={{ color: muted, flexShrink: 0, width: 80 }}>{tx.date}</span>
+          <span style={{ color: text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tx.merchant || tx.raw_desc || '—'}
+          </span>
+          <span style={{ flexShrink: 0, color: (tx.usd ?? 0) < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60',
+            fontWeight: 500 }}>
+            {fmtUSD(tx.usd)}
+          </span>
+          {tx.cat && (
+            <span style={{ ...badge(tx.cat), fontSize: 10 }}>{tx.cat}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ForensicTab({ txs, blueRates = {} }) {
   const dark = useTheme()
   const S = makeS(dark)
@@ -1526,6 +1603,8 @@ function ForensicTab({ txs, blueRates = {} }) {
   const [matching, setMatching]       = useState(false)
   const [importing, setImporting]     = useState(false)
   const [merging, setMerging]         = useState(false)
+  const [pickingMatchFor, setPickingMatchFor] = useState(null) // stagingId | null
+  const [sourceStats, setSourceStats] = useState({})           // { sourceId: counts }
   const [pendingImport, setPendingImport] = useState(null) // { rows, sourceType, fileName }
   const [importName, setImportName]   = useState('')
   const fileRef = useRef()
@@ -1539,9 +1618,13 @@ function ForensicTab({ txs, blueRates = {} }) {
     return m
   }, [txs])
 
-  // ── Load sources on mount ──────────────────────────────────────────────────
+  // ── Load sources on mount + stats for each ────────────────────────────────
   useEffect(() => {
-    loadStagingSources().then(setSources).catch(e => setMsg({ text: e.message, error: true }))
+    loadStagingSources().then(async srcs => {
+      setSources(srcs)
+      const entries = await Promise.all(srcs.map(async s => [s.id, await loadSourceStats(s.id)]))
+      setSourceStats(Object.fromEntries(entries))
+    }).catch(e => setMsg({ text: e.message, error: true }))
   }, [])
 
   // ── Load rows when active source changes ───────────────────────────────────
@@ -1685,6 +1768,7 @@ function ForensicTab({ txs, blueRates = {} }) {
           ? { ...r, link: { ...(r.link ?? {}), staging_id: stagingId, status, main_id: mainId, auto_match: false, decided_at: new Date().toISOString() } }
           : r
       ))
+      setPickingMatchFor(null)
     } catch (err) {
       setMsg({ text: err.message, error: true })
     }
@@ -1759,11 +1843,40 @@ function ForensicTab({ txs, blueRates = {} }) {
                 borderRadius: 8, marginBottom: 6, cursor: 'pointer',
                 background: active ? (dark ? '#1a2a3a' : '#eff6ff') : subBg,
                 border: `1px solid ${active ? (dark ? '#2a5a8a' : '#bfdbfe') : inputBdr}` }}>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: text }}>{src.name}</div>
                 <div style={{ fontSize: 11, color: muted }}>
                   {SOURCE_TYPE_LABEL[src.source_type] ?? src.source_type} · {src.row_count?.toLocaleString()} filas · {src.date_from} → {src.date_to}
                 </div>
+                {(() => {
+                  const st = active ? counts : (sourceStats[src.id] ?? null)
+                  if (!st) return null
+                  const pills = [
+                    { key: 'matched',  label: '✓', color: '#27ae60' },
+                    { key: 'new',      label: '+',  color: '#3498db' },
+                    { key: 'merged',   label: '↑',  color: '#8e44ad' },
+                    { key: 'pending',  label: '⏳', color: '#e67e22' },
+                    { key: 'no_match', label: '✗',  color: '#e74c3c' },
+                    { key: 'excluded', label: '—',  color: '#aaa'    },
+                  ].filter(p => (st[p.key] ?? 0) > 0)
+                  if (!pills.length) return null
+                  return (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                      {pills.map(p => (
+                        <span key={p.key} style={{ fontSize: 10, fontWeight: 700,
+                          padding: '1px 5px', borderRadius: 6,
+                          background: p.color + '22', color: p.color }}>
+                          {p.label} {st[p.key]}
+                        </span>
+                      ))}
+                      {(st.unreviewed ?? 0) > 0 && (
+                        <span style={{ fontSize: 10, color: muted }}>
+                          {st.unreviewed} sin revisar
+                        </span>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
               <button style={S.btnSm('danger')} onClick={e => { e.stopPropagation(); deleteSource(src.id) }}>✕</button>
             </div>
@@ -1835,8 +1948,11 @@ function ForensicTab({ txs, blueRates = {} }) {
             const sl = STATUS_LABELS[status] ?? STATUS_LABELS.unreviewed
 
             return (
-              <div key={row.id} style={{ display: 'flex', gap: 8, marginBottom: 8, padding: '10px 12px',
-                borderRadius: 8, border: `1px solid ${inputBdr}`,
+              <div key={row.id} style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, padding: '10px 12px',
+                borderRadius: pickingMatchFor === row.id ? '8px 8px 0 0' : 8,
+                border: `1px solid ${inputBdr}`,
+                borderBottom: pickingMatchFor === row.id ? 'none' : undefined,
                 background: status === 'matched' ? (dark ? '#0f2a1a' : '#f0fdf4')
                   : status === 'excluded'        ? (dark ? '#1a1a1a' : '#fafafa')
                   : status === 'new'             ? (dark ? '#0f1a2a' : '#eff6ff')
@@ -1911,8 +2027,15 @@ function ForensicTab({ txs, blueRates = {} }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, justifyContent: 'center' }}>
                   <button title="Match — corresponde a la tx del DB"
                     style={{ ...S.btnSm(status === 'matched' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => decide(row.id, 'matched', link?.main_id || null)}>
+                    onClick={() => link?.main_id
+                      ? decide(row.id, 'matched', link.main_id)
+                      : setPickingMatchFor(pickingMatchFor === row.id ? null : row.id)}>
                     ✓ Match
+                  </button>
+                  <button title="Elegir manualmente la tx correspondiente"
+                    style={{ ...S.btnSm(pickingMatchFor === row.id ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
+                    onClick={() => setPickingMatchFor(pickingMatchFor === row.id ? null : row.id)}>
+                    🔍 Pick
                   </button>
                   <button title="No hay correspondencia en el DB"
                     style={{ ...S.btnSm(status === 'no_match' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
@@ -1930,6 +2053,15 @@ function ForensicTab({ txs, blueRates = {} }) {
                     — Excluir
                   </button>
                 </div>
+              </div>
+              {pickingMatchFor === row.id && (
+                <MatchPicker
+                  stagingRow={row}
+                  txs={txs}
+                  onSelect={tx => decide(row.id, 'matched', tx.id)}
+                  onClose={() => setPickingMatchFor(null)}
+                />
+              )}
               </div>
             )
           })}

@@ -278,7 +278,7 @@ export async function loadSourceStats(sourceId) {
     .eq('source_id', sourceId)
   if (error) throw error
 
-  const counts = { unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0 }
+  const counts = { unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0, merged: 0 }
   for (const row of data ?? []) {
     const status = row.forensic_links?.[0]?.status ?? 'unreviewed'
     counts[status] = (counts[status] || 0) + 1
