@@ -1667,7 +1667,7 @@ function ForensicTab({ txs, blueRates = {} }) {
         const text = ev.target.result
         const sourceType = detectSourceType(text)
         if (sourceType === 'unknown') {
-          setMsg({ text: 'Formato no reconocido. Asegurate de subir un CSV de Mint o Personal Capital.', error: true })
+          setMsg({ text: 'Formato no reconocido. Soportados: Mint, Personal Capital/Empower, IBKR Activity Statement, Betterment.', error: true })
           return
         }
         const rows = parseStaging(text, sourceType)
@@ -1883,6 +1883,38 @@ function ForensicTab({ txs, blueRates = {} }) {
           )
         })}
       </div>
+
+      {/* IBKR P&L summary */}
+      {activeSrcId && sources.find(s => s.id === activeSrcId)?.source_type === 'ibkr' && allRows.length > 0 && (() => {
+        const deposited  = allRows.filter(r => r.category === 'Transfer' && r.amount < 0).reduce((s, r) => s + Math.abs(r.amount), 0)
+        const withdrawn  = allRows.filter(r => r.category === 'Transfer' && r.amount > 0).reduce((s, r) => s + r.amount, 0)
+        const dividends  = allRows.filter(r => r.category === 'Dividend').reduce((s, r) => s + r.amount, 0)
+        const interest   = allRows.filter(r => r.category === 'Interest').reduce((s, r) => s + r.amount, 0)
+        const taxes      = allRows.filter(r => r.category === 'Tax').reduce((s, r) => s + Math.abs(r.amount), 0)
+        const netCash    = withdrawn + dividends + interest - taxes - deposited
+        const statColor  = v => v >= 0 ? '#27ae60' : (dark ? '#e05252' : '#c0392b')
+        return (
+          <div style={{ ...S.card, marginBottom: 12, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: muted, letterSpacing: 1, alignSelf: 'center' }}>IBKR P&amp;L</div>
+            {[
+              { label: 'Depositado',  value: -deposited,  note: 'salidas a IBKR' },
+              { label: 'Retirado',    value: withdrawn,   note: 'ingresos de IBKR' },
+              { label: 'Dividendos',  value: dividends,   note: null },
+              { label: 'Intereses',   value: interest,    note: null },
+              { label: 'Impuestos',   value: -taxes,      note: null },
+              { label: 'Net cash',    value: netCash,     note: 'retirado − depositado + dividendos + intereses − impuestos', bold: true },
+            ].map(({ label, value, note, bold }) => (
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+                <div style={{ fontSize: bold ? 16 : 14, fontWeight: bold ? 700 : 500, color: statColor(value) }}>
+                  {value >= 0 ? '+' : '−'}{fmtUSD(Math.abs(value))}
+                </div>
+                {note && <div style={{ fontSize: 10, color: muted }}>{note}</div>}
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Review panel */}
       {activeSrcId && (
