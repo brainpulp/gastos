@@ -13,6 +13,11 @@ import {
   bulkUpdateCat, bulkUpdateByIds, loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
+import { detectSourceType, parseStaging, autoMatch } from './stagingParser.js'
+import {
+  loadStagingSources, importStagingSource, deleteStagingSource,
+  loadAllStagingRows, saveDecision, saveAutoMatches, bulkConfirmHighConfidence,
+} from './stagingDb.js'
 
 const ThemeCtx = createContext(false)
 const useTheme = () => useContext(ThemeCtx)
@@ -214,14 +219,14 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings']
+    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'forensic']
     return valid.includes(hash) ? hash : 'dash'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings']
+      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'forensic']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHashChange)
@@ -492,6 +497,7 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'txs', label: 'Transacciones' },
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
     { id: 'auditoria', label: 'Historial IA' },
+    { id: 'forensic', label: '🔍 Forensic' },
     { id: 'settings', label: '⚙ Config' },
   ]
 
@@ -520,7 +526,7 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {!['auditoria', 'settings'].includes(activeTab) && (
+        {!['auditoria', 'settings', 'forensic'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
@@ -564,7 +570,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {filterActive && !['auditoria', 'settings'].includes(activeTab) && (
+        {filterActive && !['auditoria', 'settings', 'forensic'].includes(activeTab) && (
           <div style={{
             background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
             marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
@@ -609,6 +615,7 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
+        {activeTab === 'forensic' && <ForensicTab txs={txs} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
           cats={cats}
@@ -1467,6 +1474,450 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
           Al importar XLSX, la tasa también se asigna por fecha automáticamente.
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Forensic Tab ─────────────────────────────────────────────────────────────
+// Side-by-side review: external source rows vs canonical DB transactions.
+// Writes only to staging_* and forensic_links — never touches transactions.
+
+const STATUS_LABELS = {
+  unreviewed: { label: 'Sin revisar', color: '#888' },
+  pending:    { label: 'Pendiente',   color: '#e67e22' },
+  matched:    { label: '✓ Match',     color: '#27ae60' },
+  no_match:   { label: '✗ No match', color: '#e74c3c' },
+  new:        { label: '+ Nuevo',     color: '#3498db' },
+  excluded:   { label: '— Excluir',  color: '#aaa' },
+}
+
+function ConfidenceBar({ value }) {
+  const pct = Math.round((value ?? 0) * 100)
+  const color = pct >= 80 ? '#27ae60' : pct >= 50 ? '#e67e22' : '#e74c3c'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ width: 60, height: 6, background: '#ddd', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+      </div>
+      <span style={{ fontSize: 11, color, fontWeight: 600 }}>{pct}%</span>
+    </div>
+  )
+}
+
+function ForensicTab({ txs }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const inputBg  = dark ? '#12121f' : '#fff'
+  const inputBdr = dark ? '#2a2a3e' : '#ddd'
+  const text     = dark ? '#e0e0e0' : '#1a1a2e'
+  const muted    = dark ? '#8a8aaa' : '#888'
+  const cardBg   = dark ? '#1a1a2e' : '#fff'
+  const subBg    = dark ? '#12121f' : '#f8f8f8'
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [sources, setSources]         = useState([])
+  const [activeSrcId, setActiveSrcId] = useState(null)
+  const [allRows, setAllRows]         = useState([])   // all staging rows for active source
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [page, setPage]               = useState(0)
+  const [msg, setMsg]                 = useState(null) // { text, error? }
+  const [matching, setMatching]       = useState(false)
+  const [importing, setImporting]     = useState(false)
+  const [pendingImport, setPendingImport] = useState(null) // { rows, sourceType, fileName }
+  const [importName, setImportName]   = useState('')
+  const fileRef = useRef()
+
+  const PAGE_SIZE = 50
+
+  // ── Build txs index (id → tx) for displaying matched main tx ───────────────
+  const txIndex = useMemo(() => {
+    const m = {}
+    for (const tx of txs) m[tx.id] = tx
+    return m
+  }, [txs])
+
+  // ── Load sources on mount ──────────────────────────────────────────────────
+  useEffect(() => {
+    loadStagingSources().then(setSources).catch(e => setMsg({ text: e.message, error: true }))
+  }, [])
+
+  // ── Load rows when active source changes ───────────────────────────────────
+  useEffect(() => {
+    if (!activeSrcId) { setAllRows([]); return }
+    setMsg({ text: 'Cargando…' })
+    loadAllStagingRows(activeSrcId)
+      .then(rows => { setAllRows(rows); setPage(0); setMsg(null) })
+      .catch(e => setMsg({ text: e.message, error: true }))
+  }, [activeSrcId])
+
+  // ── Filtered + paged rows ─────────────────────────────────────────────────
+  const filteredRows = useMemo(() => {
+    if (statusFilter === 'all') return allRows
+    if (statusFilter === 'unreviewed') return allRows.filter(r => !r.link)
+    return allRows.filter(r => (r.link?.status ?? 'unreviewed') === statusFilter)
+  }, [allRows, statusFilter])
+
+  const pagedRows = filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE)
+
+  // ── Status counts ─────────────────────────────────────────────────────────
+  const counts = useMemo(() => {
+    const c = { all: allRows.length, unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0 }
+    for (const r of allRows) {
+      const s = r.link?.status ?? 'unreviewed'
+      c[s] = (c[s] || 0) + 1
+    }
+    return c
+  }, [allRows])
+
+  // ── File upload / parse ───────────────────────────────────────────────────
+  const handleFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target.result
+        const sourceType = detectSourceType(text)
+        if (sourceType === 'unknown') {
+          setMsg({ text: 'Formato no reconocido. Asegurate de subir un CSV de Mint o Personal Capital.', error: true })
+          return
+        }
+        const rows = parseStaging(text, sourceType)
+        const defaultName = file.name.replace(/\.csv$/i, '') +
+          (sourceType === 'mint' ? ' (Mint)' : ' (Personal Capital)')
+        setPendingImport({ rows, sourceType, fileName: file.name })
+        setImportName(defaultName)
+        setMsg({ text: `Parseado: ${rows.length} filas desde ${file.name} (${sourceType}). Ingresá un nombre y confirmá.` })
+      } catch (err) {
+        setMsg({ text: err.message, error: true })
+      }
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+
+  const confirmImport = async () => {
+    if (!pendingImport || !importName.trim()) return
+    setImporting(true)
+    setMsg({ text: 'Importando…' })
+    try {
+      const { source } = await importStagingSource({
+        name: importName.trim(),
+        sourceType: pendingImport.sourceType,
+        rows: pendingImport.rows,
+      })
+      const updated = await loadStagingSources()
+      setSources(updated)
+      setPendingImport(null)
+      setImportName('')
+      setActiveSrcId(source.id)
+      setMsg({ text: `✓ Importadas ${pendingImport.rows.length} filas. Ejecutá el auto-match para sugerir correspondencias.` })
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // ── Auto-match ────────────────────────────────────────────────────────────
+  const runAutoMatch = async () => {
+    if (!activeSrcId || !allRows.length) return
+    setMatching(true)
+    setMsg({ text: `Calculando correspondencias para ${allRows.length} filas…` })
+    try {
+      const matches = autoMatch(allRows, txs)
+      await saveAutoMatches(matches)
+      // Reload rows to get updated links
+      const refreshed = await loadAllStagingRows(activeSrcId)
+      setAllRows(refreshed)
+      setMsg({ text: `✓ Auto-match completo: ${matches.length} filas con candidato.` })
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    } finally {
+      setMatching(false)
+    }
+  }
+
+  // ── Bulk confirm high-confidence ──────────────────────────────────────────
+  const runBulkConfirm = async () => {
+    if (!activeSrcId) return
+    setMsg({ text: 'Confirmando matches con ≥80% confianza…' })
+    try {
+      const n = await bulkConfirmHighConfidence(activeSrcId, 0.80)
+      const refreshed = await loadAllStagingRows(activeSrcId)
+      setAllRows(refreshed)
+      setMsg({ text: `✓ ${n} filas confirmadas como "matched".` })
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    }
+  }
+
+  // ── Per-row decision ──────────────────────────────────────────────────────
+  const decide = async (stagingId, status, mainId = null) => {
+    try {
+      await saveDecision(stagingId, { mainId, status })
+      setAllRows(prev => prev.map(r =>
+        r.id === stagingId
+          ? { ...r, link: { ...(r.link ?? {}), staging_id: stagingId, status, main_id: mainId, auto_match: false, decided_at: new Date().toISOString() } }
+          : r
+      ))
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    }
+  }
+
+  const deleteSource = async (srcId) => {
+    if (!confirm('¿Eliminar esta fuente y todas sus filas?')) return
+    try {
+      await deleteStagingSource(srcId)
+      setSources(s => s.filter(x => x.id !== srcId))
+      if (activeSrcId === srcId) { setActiveSrcId(null); setAllRows([]) }
+    } catch (err) {
+      setMsg({ text: err.message, error: true })
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const SOURCE_TYPE_LABEL = { mint: 'Mint', personal_capital: 'Personal Capital', betterment: 'Betterment', ibkr: 'IBKR' }
+
+  return (
+    <div>
+      {/* Message banner */}
+      {msg && (
+        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 8, fontSize: 13,
+          background: msg.error ? (dark ? '#3a1010' : '#fee2e2') : (dark ? '#0f2a1a' : '#d1fae5'),
+          color: msg.error ? (dark ? '#e05252' : '#991b1b') : (dark ? '#52e09a' : '#065f46'),
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{msg.text}</span>
+          <button onClick={() => setMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'inherit', marginLeft: 12 }}>×</button>
+        </div>
+      )}
+
+      {/* Source list */}
+      <div style={{ ...S.card, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>🔍 Fuentes forenses</h3>
+          <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#fff',
+            background: '#1a1a2e', border: 'none', borderRadius: 6, display: 'inline-block' }}>
+            + Importar CSV
+            <input type="file" accept=".csv" ref={fileRef} onChange={handleFile} style={{ display: 'none' }} />
+          </label>
+        </div>
+
+        {/* Pending import confirmation */}
+        {pendingImport && (
+          <div style={{ padding: '12px 14px', background: dark ? '#1a2a3a' : '#eff6ff', borderRadius: 8, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: dark ? '#74b9ff' : '#1e40af', fontWeight: 600 }}>
+              {pendingImport.rows.length} filas listas para importar
+            </span>
+            <input style={{ ...S.input, flex: 1, minWidth: 200 }}
+              placeholder="Nombre de la fuente…" value={importName}
+              onChange={e => setImportName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && confirmImport()} />
+            <button style={S.btn('primary')} onClick={confirmImport} disabled={importing || !importName.trim()}>
+              {importing ? 'Importando…' : '✓ Confirmar'}
+            </button>
+            <button style={S.btnSm()} onClick={() => { setPendingImport(null); setImportName(''); setMsg(null) }}>Cancelar</button>
+          </div>
+        )}
+
+        {sources.length === 0 && !pendingImport && (
+          <p style={{ color: muted, fontSize: 13, margin: 0 }}>
+            No hay fuentes importadas. Subí un CSV de Mint o Personal Capital para empezar.
+          </p>
+        )}
+
+        {sources.map(src => {
+          const active = src.id === activeSrcId
+          return (
+            <div key={src.id} onClick={() => setActiveSrcId(src.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                borderRadius: 8, marginBottom: 6, cursor: 'pointer',
+                background: active ? (dark ? '#1a2a3a' : '#eff6ff') : subBg,
+                border: `1px solid ${active ? (dark ? '#2a5a8a' : '#bfdbfe') : inputBdr}` }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: text }}>{src.name}</div>
+                <div style={{ fontSize: 11, color: muted }}>
+                  {SOURCE_TYPE_LABEL[src.source_type] ?? src.source_type} · {src.row_count?.toLocaleString()} filas · {src.date_from} → {src.date_to}
+                </div>
+              </div>
+              <button style={S.btnSm('danger')} onClick={e => { e.stopPropagation(); deleteSource(src.id) }}>✕</button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Review panel */}
+      {activeSrcId && (
+        <div style={S.card}>
+          {/* Toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, fontSize: 14, color: muted }}>
+              {sources.find(s => s.id === activeSrcId)?.name}
+            </h3>
+            <span style={{ flex: 1 }} />
+            <button style={{ ...S.btn('secondary'), fontSize: 12 }}
+              onClick={runAutoMatch} disabled={matching || !allRows.length}>
+              {matching ? '⏳ Calculando…' : '🔗 Auto-match'}
+            </button>
+            <button style={{ ...S.btn('secondary'), fontSize: 12 }}
+              onClick={runBulkConfirm} disabled={counts.pending === 0}>
+              ✓ Confirmar ≥80% ({counts.pending} pendientes)
+            </button>
+          </div>
+
+          {/* Status filter tabs */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+            {[
+              ['all',        `Todas (${counts.all})`],
+              ['unreviewed', `Sin revisar (${counts.unreviewed})`],
+              ['pending',    `Pendiente (${counts.pending})`],
+              ['matched',    `✓ Match (${counts.matched})`],
+              ['no_match',   `✗ No match (${counts.no_match})`],
+              ['new',        `+ Nuevo (${counts.new})`],
+              ['excluded',   `Excluir (${counts.excluded})`],
+            ].map(([key, label]) => (
+              <button key={key}
+                style={{ ...S.btnSm(statusFilter === key ? 'active' : 'ghost'), fontSize: 12 }}
+                onClick={() => { setStatusFilter(key); setPage(0) }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Row count */}
+          <div style={{ fontSize: 12, color: muted, marginBottom: 10 }}>
+            {filteredRows.length} filas · página {page + 1}/{totalPages || 1}
+          </div>
+
+          {/* Review rows */}
+          {pagedRows.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 32, color: muted }}>
+              {allRows.length === 0 ? 'Cargando…' : 'Sin filas en este filtro.'}
+            </div>
+          )}
+
+          {pagedRows.map(row => {
+            const link    = row.link
+            const status  = link?.status ?? 'unreviewed'
+            const matchedTx = link?.main_id ? txIndex[link.main_id] : null
+            const sl = STATUS_LABELS[status] ?? STATUS_LABELS.unreviewed
+
+            return (
+              <div key={row.id} style={{ display: 'flex', gap: 8, marginBottom: 8, padding: '10px 12px',
+                borderRadius: 8, border: `1px solid ${inputBdr}`,
+                background: status === 'matched' ? (dark ? '#0f2a1a' : '#f0fdf4')
+                  : status === 'excluded'        ? (dark ? '#1a1a1a' : '#fafafa')
+                  : status === 'new'             ? (dark ? '#0f1a2a' : '#eff6ff')
+                  : subBg }}>
+
+                {/* Status pill */}
+                <div style={{ width: 80, flexShrink: 0, paddingTop: 2 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
+                    background: sl.color + '22', color: sl.color }}>
+                    {sl.label}
+                  </span>
+                  {link?.confidence != null && (
+                    <div style={{ marginTop: 4 }}>
+                      <ConfidenceBar value={link.confidence} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Source (Mint) panel */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: muted, marginBottom: 2 }}>
+                    {row.date} · <span style={{ fontStyle: 'italic' }}>{row.account}</span>
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {row.description || '—'}
+                  </div>
+                  {row.orig_description && row.orig_description !== row.description && (
+                    <div style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      orig: {row.orig_description}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, marginTop: 2, color: row.amount < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 500 }}>
+                    {row.amount < 0 ? '−' : '+'}{fmtUSD(Math.abs(row.amount))}
+                    {row.category && <span style={{ fontWeight: 400, color: muted, marginLeft: 6 }}>{row.category}</span>}
+                  </div>
+                </div>
+
+                {/* Arrow */}
+                <div style={{ display: 'flex', alignItems: 'center', color: muted, fontSize: 18, flexShrink: 0 }}>↔</div>
+
+                {/* Matched main tx panel */}
+                <div style={{ flex: 1, minWidth: 0, borderLeft: `1px solid ${inputBdr}`, paddingLeft: 10 }}>
+                  {matchedTx ? (<>
+                    <div style={{ fontSize: 11, color: muted, marginBottom: 2 }}>
+                      {matchedTx.date} · <span style={{ padding: '1px 5px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                        ...((BANK_STYLE[matchedTx.bank]) ?? { background: '#eee', color: '#555' }) }}>
+                        {matchedTx.bank}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {matchedTx.merchant || matchedTx.raw_desc || '—'}
+                    </div>
+                    {matchedTx.merchant && matchedTx.raw_desc && (
+                      <div style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {matchedTx.raw_desc}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 12, marginTop: 2, color: (matchedTx.usd ?? 0) < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 500 }}>
+                      {fmtUSD(matchedTx.usd)}
+                      {matchedTx.cat && <span style={{ ...badge(matchedTx.cat), marginLeft: 6 }}>{matchedTx.cat}</span>}
+                    </div>
+                  </>) : (
+                    <div style={{ color: muted, fontSize: 12, paddingTop: 6 }}>
+                      {link?.status === 'new'      ? '📥 Marcar como nueva transacción' :
+                       link?.status === 'excluded' ? '—' :
+                       '(sin correspondencia sugerida)'}
+                    </div>
+                  )}
+                </div>
+
+                {/* Decision buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, justifyContent: 'center' }}>
+                  <button title="Match — corresponde a la tx del DB"
+                    style={{ ...S.btnSm(status === 'matched' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
+                    onClick={() => decide(row.id, 'matched', link?.main_id || null)}>
+                    ✓ Match
+                  </button>
+                  <button title="No hay correspondencia en el DB"
+                    style={{ ...S.btnSm(status === 'no_match' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
+                    onClick={() => decide(row.id, 'no_match')}>
+                    ✗ No match
+                  </button>
+                  <button title="Transacción nueva no presente en el DB"
+                    style={{ ...S.btnSm(status === 'new' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
+                    onClick={() => decide(row.id, 'new')}>
+                    + Nuevo
+                  </button>
+                  <button title="Ignorar (ruido, duplicado, no relevante)"
+                    style={{ ...S.btnSm(status === 'excluded' ? 'danger' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
+                    onClick={() => decide(row.id, 'excluded')}>
+                    — Excluir
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+              <button style={S.btnSm()} disabled={page === 0} onClick={() => setPage(0)}>«</button>
+              <button style={S.btnSm()} disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹</button>
+              <span style={{ fontSize: 13, color: muted, padding: '3px 10px' }}>
+                {page + 1} / {totalPages}
+              </span>
+              <button style={S.btnSm()} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>›</button>
+              <button style={S.btnSm()} disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>»</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
