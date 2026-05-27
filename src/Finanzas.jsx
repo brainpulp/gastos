@@ -290,7 +290,7 @@ export default function Finanzas({ session, onLogout }) {
     if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
-    if (catFs.length && !catFs.includes(t.cat)) return false
+    if (catFs.length && !catFs.includes(t.cat) && !(isUncat(t) && catFs.includes('Uncategorized Expenses'))) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (showUncatOnly && !isUncat(t)) return false
     if (search) {
