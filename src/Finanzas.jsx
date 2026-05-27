@@ -1109,7 +1109,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
                       : fmtARS(tx.ars)}
                   </td>
 
-                  <td style={cellStyle({ textAlign: 'right', color: '#555', fontSize: 12 })} onClick={clickCell(tx, 'usd')}>
+                  <td style={cellStyle({ textAlign: 'right', fontSize: 12, color: (tx.usd ?? 0) > 0 ? '#27ae60' : '#555' })} onClick={clickCell(tx, 'usd')}>
                     {editing
                       ? <input type="number" style={{ ...iStyle, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'usd'} />
                       : fmtUSD(tx.usd)}
