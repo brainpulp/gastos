@@ -990,9 +990,13 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
         <span style={{ fontSize: 11, color: '#bbb' }}>click en cualquier campo para editar · Enter para guardar</span>
       </div>
 
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 && (() => {
+        const selTxs = txs.filter(t => selectedIds.has(t.id))
+        const selUSD = selTxs.reduce((s, t) => s + (t.usd || 0), 0)
+        return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: dark ? '#1a2040' : '#e8f0fe', borderRadius: 8, flexWrap: 'wrap', border: `1px solid ${dark ? '#2a3a7e' : '#c5d8fc'}` }}>
           <span style={{ fontWeight: 700, fontSize: 13, color: dark ? '#a0c0ff' : '#1a56db' }}>{selectedIds.size} seleccionadas</span>
+          <span style={{ fontSize: 12, color: selUSD < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 600 }}>{fmtUSD(selUSD)}</span>
           <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={clearSelection}>✕ Limpiar</button>
           {selectedIds.size < txs.length && (
             <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={selectAllFiltered}>Seleccionar todas ({txs.length})</button>
@@ -1008,7 +1012,8 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
             style={{ ...S.btn('primary'), padding: '4px 14px', fontSize: 12, opacity: (!bulkCat || bulkApplying) ? 0.5 : 1, cursor: (!bulkCat || bulkApplying) ? 'default' : 'pointer' }}
             onClick={applyBulkCat}>{bulkApplying ? 'Aplicando…' : 'Aplicar'}</button>
         </div>
-      )}
+        )
+      })()}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
