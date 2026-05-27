@@ -42,9 +42,10 @@ export async function loadTransactions() {
 
 /** Upsert an array of transactions (from upload or manual add).
  *  Respects soft-deleted rows — any incoming ID that is already soft-deleted
- *  is skipped and returned in the `skipped` list. */
+ *  is skipped and returned in the `skipped` list.
+ *  Returns { skipped, inserted, updated } counts for upload summary. */
 export async function upsertTransactions(txs) {
-  if (!txs.length) return { skipped: [] }
+  if (!txs.length) return { skipped: [], inserted: 0, updated: 0 }
 
   const { data: { user }, error: uErr } = await supabase.auth.getUser()
   if (uErr) throw uErr
@@ -63,7 +64,20 @@ export async function upsertTransactions(txs) {
   const deletedSet = new Set((deleted || []).map(r => r.id))
   const toUpsert = normalized.filter(t => !deletedSet.has(t.id))
 
-  // Batch insert in chunks of 200
+  // Find which IDs already exist (non-deleted) — those are updates, not inserts
+  const toUpsertIds = toUpsert.map(t => t.id)
+  const { data: existing, error: eErr } = await supabase
+    .from('transactions')
+    .select('id')
+    .in('id', toUpsertIds)
+    .is('deleted_at', null)
+  if (eErr) throw eErr
+
+  const existingSet = new Set((existing || []).map(r => r.id))
+  const insertedCount = toUpsert.filter(t => !existingSet.has(t.id)).length
+  const updatedCount  = toUpsert.filter(t =>  existingSet.has(t.id)).length
+
+  // Batch upsert in chunks of 200
   const CHUNK = 200
   for (let i = 0; i < toUpsert.length; i += CHUNK) {
     const { error } = await supabase
@@ -72,7 +86,7 @@ export async function upsertTransactions(txs) {
     if (error) throw error
   }
 
-  return { skipped: [...deletedSet] }
+  return { skipped: [...deletedSet], inserted: insertedCount, updated: updatedCount }
 }
 
 /** Soft-delete a transaction (sets deleted_at, does not physically remove) */

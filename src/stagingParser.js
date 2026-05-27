@@ -77,9 +77,10 @@ export function parseMintCSV(text, minDate = '2020-01-01') {
   const hAccount  = col(['Account Name'])
 
   const out = []
+  let filteredCount = 0
   for (const r of rows) {
     const date = mintDate(r[hDate])
-    if (!date || date < minDate) continue
+    if (!date || date < minDate) { filteredCount++; continue }
 
     const rawAmount = parseFloat(r[hAmount]) || 0
     const isDebit = (r[hType] || '').toLowerCase().trim() === 'debit'
@@ -96,7 +97,7 @@ export function parseMintCSV(text, minDate = '2020-01-01') {
       raw: r,
     })
   }
-  return out
+  return { rows: out, filteredCount }
 }
 
 // ─── Personal Capital / Empower ───────────────────────────────────────────────
@@ -122,11 +123,12 @@ export function parsePersonalCapitalCSV(text, minDate = '2020-01-01') {
   const hAmount  = col(['Amount'])
 
   const out = []
+  let filteredCount = 0
   for (const r of rows) {
     // PC uses YYYY-MM-DD; some exports use MM/DD/YYYY
     let date = r[hDate] || ''
     if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(date)) date = mintDate(date)
-    if (!date || date < minDate) continue
+    if (!date || date < minDate) { filteredCount++; continue }
 
     const amount = parseFloat(r[hAmount]) || 0
 
@@ -141,7 +143,7 @@ export function parsePersonalCapitalCSV(text, minDate = '2020-01-01') {
       raw: r,
     })
   }
-  return out
+  return { rows: out, filteredCount }
 }
 
 // ─── IBKR Activity Statement (multi-section CSV) ─────────────────────────────
@@ -162,6 +164,7 @@ const IBKR_XFER_SECTIONS = new Set(['Deposits & Withdrawals'])
 export function parseIBKRActivityCSV(text, minDate = '2020-01-01') {
   const lines = text.trim().split(/\r?\n/)
   const out = []
+  let filteredCount = 0
   let section = null
   let headers = null
 
@@ -185,7 +188,7 @@ export function parseIBKRActivityCSV(text, minDate = '2020-01-01') {
     // Date field differs by section
     const dateRaw = row['Settle Date'] || row['Date'] || ''
     const date = dateRaw.slice(0, 10) // handles YYYY-MM-DD or YYYY-MM-DD;HH:MM:SS
-    if (!date || date < minDate) continue
+    if (!date || date < minDate) { filteredCount++; continue }
 
     const amount = parseFloat(row['Amount']?.replace(/,/g, '')) || 0
     if (amount === 0) continue
@@ -215,64 +218,73 @@ export function parseIBKRActivityCSV(text, minDate = '2020-01-01') {
     })
   }
 
-  return out
+  return { rows: out, filteredCount }
 }
 
 // ─── Betterment ───────────────────────────────────────────────────────────────
-// Typical columns: Date, Type, Amount ($), Fees ($), Description, Account
-// Type values: DEPOSIT, WITHDRAWAL, DIVIDEND, DIVIDEND_REINVESTMENT,
-//              CAPITAL_GAINS_SHORT, CAPITAL_GAINS_LONG, REBALANCE, etc.
-// Amount is positive for deposits, negative for withdrawals.
+// Actual export format (from betterment.com Activity → Download):
+//   Date Created, Goal Name, Transaction Description, Amount, Date Completed
+// Amount: "$1,234.56" or "-$1,234.56" or "—" (em dash = allocation change, skip)
+// Date: YYYY-MM-DD
+// Key description patterns: "Deposit from ****NNNN", "Withdrawal to ****NNNN",
+//   "Withdraw all to ****NNNN", "Dividend Reinvestment", "Advisory Fee",
+//   "Automatic Deposit", "Allocation Change, ..." (skipped — no cash flow)
 
 export function parseBettermentCSV(text, minDate = '2020-01-01') {
   const { headers, rows } = parseCSV(text)
 
   const col = (names) => {
     for (const n of names) {
-      const h = headers.find(h => h.replace(/\s*\(.*\)/, '').trim().toLowerCase() === n.toLowerCase())
+      const h = headers.find(h => h.trim().toLowerCase() === n.toLowerCase())
       if (h) return h
     }
     return names[0]
   }
 
-  const hDate    = col(['Date'])
-  const hType    = col(['Type'])
-  const hAmount  = col(['Amount', 'Amount ($)'])
-  const hDesc    = col(['Description'])
-  const hAccount = col(['Account'])
+  const hDate = col(['Date Created', 'Date'])
+  const hDesc = col(['Transaction Description', 'Description'])
+  const hAmt  = col(['Amount'])
+  const hGoal = col(['Goal Name', 'Account'])
 
   const out = []
+  let filteredCount = 0
   for (const r of rows) {
-    // Betterment date is typically YYYY-MM-DD or MM/DD/YYYY
-    let date = r[hDate] || ''
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(date)) date = mintDate(date)
-    date = date.slice(0, 10)
-    if (!date || date < minDate) continue
+    const date = (r[hDate] || '').slice(0, 10)
+    if (!date || date < minDate) { filteredCount++; continue }
 
-    const rawAmount = parseFloat((r[hAmount] || '0').replace(/[$,]/g, '')) || 0
-    if (rawAmount === 0) continue
+    // Skip allocation changes and other non-cash rows (amount = "—")
+    const rawAmt = (r[hAmt] || '').trim()
+    if (rawAmt === '—' || rawAmt === '-' || rawAmt === '') continue
 
-    const type = (r[hType] || '').toUpperCase()
-    const isXfer = type === 'DEPOSIT' || type === 'WITHDRAWAL'
+    const amount = parseFloat(rawAmt.replace(/[$,]/g, '')) || 0
+    if (amount === 0) continue
+
+    const desc = r[hDesc] || ''
+    const descLower = desc.toLowerCase()
+
+    // Classify by description
+    const isDeposit  = descLower.includes('deposit')
+    const isWithdraw = descLower.includes('withdraw')
+    const isDividend = descLower.includes('dividend')
+    const isFee      = descLower.includes('fee')
 
     let category = 'Other'
-    if (isXfer)                                    category = 'Transfer'
-    else if (type.includes('DIVIDEND'))            category = 'Dividend'
-    else if (type.includes('CAPITAL_GAIN'))        category = 'Capital Gain'
-    else if (type === 'INTEREST')                  category = 'Interest'
+    if (isDeposit || isWithdraw) category = 'Transfer'
+    else if (isDividend)         category = 'Dividend'
+    else if (isFee)              category = 'Fee'
 
     out.push({
       date,
-      description:      r[hDesc] || type || 'Betterment',
-      orig_description: r[hDesc] || '',
-      amount:           +rawAmount.toFixed(2),
+      description:      desc || 'Betterment',
+      orig_description: desc,
+      amount:           +amount.toFixed(2),
       currency: 'USD',
-      account:  r[hAccount] || 'Betterment',
+      account:  r[hGoal] || 'Betterment',
       category,
       raw: r,
     })
   }
-  return out
+  return { rows: out, filteredCount }
 }
 
 // ─── Source type auto-detect ──────────────────────────────────────────────────
@@ -287,12 +299,30 @@ export function detectSourceType(text) {
   return 'unknown'
 }
 
+/** Parse a staging CSV and return rows + stats.
+ *  Returns { rows, stats: { kept, filtered, total, dateFrom, dateTo } }
+ *  filtered = rows excluded because date < minDate (only applies to Mint data post-2020)
+ */
 export function parseStaging(text, sourceType, minDate = '2020-01-01') {
-  if (sourceType === 'mint')             return parseMintCSV(text, minDate)
-  if (sourceType === 'personal_capital') return parsePersonalCapitalCSV(text, minDate)
-  if (sourceType === 'ibkr')            return parseIBKRActivityCSV(text, minDate)
-  if (sourceType === 'betterment')      return parseBettermentCSV(text, minDate)
-  throw new Error(`Formato no reconocido: ${sourceType}`)
+  let result
+  if (sourceType === 'mint')             result = parseMintCSV(text, minDate)
+  else if (sourceType === 'personal_capital') result = parsePersonalCapitalCSV(text, minDate)
+  else if (sourceType === 'ibkr')        result = parseIBKRActivityCSV(text, minDate)
+  else if (sourceType === 'betterment')  result = parseBettermentCSV(text, minDate)
+  else throw new Error(`Formato no reconocido: ${sourceType}`)
+
+  const { rows, filteredCount } = result
+  const dates = rows.map(r => r.date).filter(Boolean).sort()
+  return {
+    rows,
+    stats: {
+      kept:     rows.length,
+      filtered: filteredCount,
+      total:    rows.length + filteredCount,
+      dateFrom: dates[0] || null,
+      dateTo:   dates[dates.length - 1] || null,
+    },
+  }
 }
 
 // ─── Client-side auto-matcher ─────────────────────────────────────────────────

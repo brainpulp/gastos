@@ -414,11 +414,13 @@ export default function Finanzas({ session, onLogout }) {
         (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
       )
       setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
-      const { skipped } = await upsertTransactions(categorized)
+      const { skipped, inserted, updated } = await upsertTransactions(categorized)
       const fresh = await loadTransactions()
       setTxs(fresh)
-      const skipMsg = skipped.length ? ` (${skipped.length} omitidas — borradas previamente)` : ''
-      setUploadMsg({ loading: false, text: `✅ ${count} transacciones importadas${skipMsg}` })
+      const parts = [`${inserted} nuevas`]
+      if (updated > 0) parts.push(`${updated} actualizadas`)
+      if (skipped.length > 0) parts.push(`${skipped.length} omitidas (borradas previamente)`)
+      setUploadMsg({ loading: false, text: `✅ ${count} procesadas: ${parts.join(', ')}` })
     } catch (err) {
       setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
     }
@@ -1670,12 +1672,14 @@ function ForensicTab({ txs, blueRates = {} }) {
           setMsg({ text: 'Formato no reconocido. Soportados: Mint, Personal Capital/Empower, IBKR Activity Statement, Betterment.', error: true })
           return
         }
-        const rows = parseStaging(text, sourceType)
+        const { rows, stats } = parseStaging(text, sourceType)
         const defaultName = file.name.replace(/\.csv$/i, '') +
-          (sourceType === 'mint' ? ' (Mint)' : ' (Personal Capital)')
-        setPendingImport({ rows, sourceType, fileName: file.name })
+          (sourceType === 'mint' ? ' (Mint)' : sourceType === 'personal_capital' ? ' (Personal Capital)' : sourceType === 'ibkr' ? ' (IBKR)' : ' (Betterment)')
+        const filterMsg = stats.filtered > 0 ? `, ${stats.filtered} pre-2020 omitidas` : ''
+        const dateMsg   = stats.dateFrom ? ` · ${stats.dateFrom} → ${stats.dateTo}` : ''
+        setPendingImport({ rows, sourceType, fileName: file.name, stats })
         setImportName(defaultName)
-        setMsg({ text: `Parseado: ${rows.length} filas desde ${file.name} (${sourceType}). Ingresá un nombre y confirmá.` })
+        setMsg({ text: `Parseado: ${stats.kept.toLocaleString()} filas (total en archivo: ${stats.total.toLocaleString()}${filterMsg})${dateMsg}. Ingresá un nombre y confirmá.` })
       } catch (err) {
         setMsg({ text: err.message, error: true })
       }
@@ -1698,7 +1702,10 @@ function ForensicTab({ txs, blueRates = {} }) {
       setPendingImport(null)
       setImportName('')
       setActiveSrcId(source.id)
-      setMsg({ text: `✓ Importadas ${pendingImport.rows.length} filas. Ejecutá el auto-match para sugerir correspondencias.` })
+      const s = pendingImport.stats
+      const filterNote = s?.filtered > 0 ? ` (${s.filtered} pre-2020 omitidas)` : ''
+      const dateNote   = s?.dateFrom ? ` · ${s.dateFrom} → ${s.dateTo}` : ''
+      setMsg({ text: `✓ Importadas ${pendingImport.rows.length.toLocaleString()} filas${filterNote}${dateNote}. Ejecutá el auto-match para sugerir correspondencias.` })
     } catch (err) {
       setMsg({ text: err.message, error: true })
     } finally {
