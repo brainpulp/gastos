@@ -234,6 +234,7 @@ export default function Finanzas({ session, onLogout }) {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
   const [uploadMsg, setUploadMsg] = useState(null)
+  const [categorizing, setCategorizing] = useState(false)
   const fileRef = useRef()
 
   // Filters
@@ -320,6 +321,9 @@ export default function Finanzas({ session, onLogout }) {
     [filtered]
   )
 
+  // Uncategorized txs within the current filtered view (drives categorize button)
+  const uncatFiltered = useMemo(() => filtered.filter(isUncat), [filtered])
+
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
 
@@ -404,17 +408,8 @@ export default function Finanzas({ session, onLogout }) {
         const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
         return { ...tx, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
       })
-      setUploadMsg({ loading: true, text: `Categorizando ${count} transacciones…` })
-      const catLog = await loadCatLog({ limit: 1000 })
-      const categorized = await categorizeTxs(
-        enriched,
-        settings,
-        catLog,
-        session?.access_token,
-        (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
-      )
       setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
-      const { skipped, inserted, updated } = await upsertTransactions(categorized)
+      const { skipped, inserted, updated } = await upsertTransactions(enriched)
       const fresh = await loadTransactions()
       setTxs(fresh)
       const parts = [`${inserted} nuevas`]
@@ -423,6 +418,31 @@ export default function Finanzas({ session, onLogout }) {
       setUploadMsg({ loading: false, text: `✅ ${count} procesadas: ${parts.join(', ')}` })
     } catch (err) {
       setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
+    }
+  }
+
+  const handleCategorize = async () => {
+    const toProcess = filtered.filter(isUncat)
+    if (!toProcess.length || categorizing) return
+    setCategorizing(true)
+    setUploadMsg({ loading: true, text: `Categorizando 0/${toProcess.length}…` })
+    try {
+      const catLog = await loadCatLog({ limit: 1000 })
+      const categorized = await categorizeTxs(
+        toProcess,
+        settings,
+        catLog,
+        session?.access_token,
+        (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
+      )
+      await upsertTransactions(categorized)
+      const fresh = await loadTransactions()
+      setTxs(fresh)
+      setUploadMsg({ loading: false, text: `✅ ${categorized.length} transacciones categorizadas` })
+    } catch (err) {
+      setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
+    } finally {
+      setCategorizing(false)
     }
   }
 
@@ -514,6 +534,16 @@ export default function Finanzas({ session, onLogout }) {
         <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
           {dark ? '☀️' : '🌙'}
         </button>
+        {uncatFiltered.length > 0 && (
+          <button
+            style={{ padding: '5px 12px', fontSize: 13, cursor: categorizing ? 'default' : 'pointer', color: categorizing ? '#888' : '#ccc', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: categorizing ? 0.6 : 1 }}
+            onClick={handleCategorize}
+            disabled={categorizing}
+            title={`Categorizar ${uncatFiltered.length} transacciones sin categoría en la vista actual`}
+          >
+            🤖 Categorizar ({uncatFiltered.length})
+          </button>
+        )}
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
           <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
