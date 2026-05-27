@@ -50,7 +50,13 @@ export async function upsertTransactions(txs) {
   const { data: { user }, error: uErr } = await supabase.auth.getUser()
   if (uErr) throw uErr
 
-  const normalized = txs.map(tx => normalizeTx(tx, user.id))
+  // Deduplicate by id — if the same id appears twice (e.g. blank referencia → same key),
+  // keep the last occurrence to avoid "ON CONFLICT DO UPDATE command cannot affect row a second time"
+  const seenIds = new Map()
+  for (const tx of txs) seenIds.set(tx.id, tx)
+  const deduped = [...seenIds.values()]
+
+  const normalized = deduped.map(tx => normalizeTx(tx, user.id))
   const ids = normalized.map(t => t.id)
 
   // Find which IDs are already soft-deleted — skip them on re-upload
