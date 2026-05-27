@@ -427,6 +427,15 @@ export default function Finanzas({ session, onLogout }) {
     setCategorizing(true)
     setUploadMsg({ loading: true, text: `Categorizando 0/${toProcess.length}…` })
     try {
+      // Build merchant → { cat: count } from all existing categorized transactions
+      const merchantHistory = {}
+      for (const tx of txs) {
+        const key = tx.merchant || tx.raw_desc || null
+        if (!key || !tx.cat || isUncat(tx) || tx.deleted_at) continue
+        if (!merchantHistory[key]) merchantHistory[key] = {}
+        merchantHistory[key][tx.cat] = (merchantHistory[key][tx.cat] || 0) + 1
+      }
+
       const catLog = await loadCatLog({ limit: 1000 })
       const categorized = await categorizeTxs(
         toProcess,
@@ -434,6 +443,7 @@ export default function Finanzas({ session, onLogout }) {
         catLog,
         session?.access_token,
         (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
+        merchantHistory,
       )
       await upsertTransactions(categorized)
       const fresh = await loadTransactions()

@@ -55,25 +55,18 @@ async function callEdgeFn(tx, categories, accessToken) {
  * @param {string}   accessToken - Supabase JWT access token
  * @param {function} onProgress  - Optional callback(done, total)
  */
-export async function categorizeTxs(txs, settings, catLogCache, accessToken, onProgress) {
+/**
+ * @param {object[]} txs             - Uncategorized transactions to process
+ * @param {object}   settings        - Loaded settings (vendor_hints)
+ * @param {object[]} catLogCache     - Recent cat_log entries (unused now, kept for signature compat)
+ * @param {string}   accessToken     - Supabase JWT
+ * @param {function} onProgress      - Optional callback(done, total)
+ * @param {object}   merchantHistory - { [merchantKey]: { [cat]: count } } built from existing txs
+ *                                     Priority order: vendor_hints → history → AI Edge Function
+ */
+export async function categorizeTxs(txs, settings, catLogCache, accessToken, onProgress, merchantHistory = {}) {
   const vendorHints = settings?.vendor_hints ?? {}
   const categories = CATS
-
-  // Build a map from merchant → last confirmed cat (from cat_log, last 6 months)
-  const sixMonthsAgo = new Date(Date.now() - 6 * 30 * 24 * 60 * 60 * 1000).toISOString()
-  const recentConfirmed = {}
-  for (const entry of catLogCache) {
-    if (
-      entry.created_at > sixMonthsAgo &&
-      (entry.action === 'user_confirmed' || entry.action === 'user_corrected') &&
-      entry.tx_id
-    ) {
-      // Key by merchant (we'll look up the merchant from the tx when matching)
-      if (entry.cat_after && !recentConfirmed[entry.tx_id]) {
-        recentConfirmed[entry.tx_id] = entry.cat_after
-      }
-    }
-  }
 
   const results = []
   let done = 0
@@ -88,7 +81,7 @@ export async function categorizeTxs(txs, settings, catLogCache, accessToken, onP
       continue
     }
 
-    // 2. Vendor hints
+    // 2. Vendor hints (explicit user rules — always wins)
     if (vendorHints[merchantKey]) {
       const { cat } = vendorHints[merchantKey]
       results.push({ ...tx, cat, ai_assigned: false, needs_review: false })
@@ -97,23 +90,26 @@ export async function categorizeTxs(txs, settings, catLogCache, accessToken, onP
       continue
     }
 
-    // 2b. Alina ML — MercadoLibre purchases broken down by assistant.
-    //     Sub-categories are unknown; always flag for manual review.
+    // 2b. Alina ML — sub-categories unknown, always flag for review
     if (/alina\s*ml/i.test(merchantKey)) {
       results.push({ ...tx, cat: 'Alina ML', ai_assigned: false, needs_review: true })
       done++; onProgress?.(done, txs.length)
       continue
     }
 
-    // 3. Recent confirmed from cat_log (skip API call)
-    if (recentConfirmed[tx.id]) {
-      const cat = recentConfirmed[tx.id]
-      results.push({ ...tx, cat, ai_assigned: false, needs_review: false })
+    // 3. Historical frequency from existing transactions (no API call)
+    //    Uses majority category; needs_review=true when confidence < 80%
+    const history = merchantHistory[merchantKey]
+    if (history) {
+      const total = Object.values(history).reduce((a, b) => a + b, 0)
+      const [topCat, topCount] = Object.entries(history).sort((a, b) => b[1] - a[1])[0]
+      const confidence = topCount / total
+      results.push({ ...tx, cat: topCat, ai_assigned: false, ai_confidence: +confidence.toFixed(2), needs_review: confidence < 0.8 })
       done++; onProgress?.(done, txs.length)
       continue
     }
 
-    // 4. Call Edge Function
+    // 4. AI Edge Function — only for merchants never seen before
     try {
       const { cat, confidence, reasoning, usage } = await callEdgeFn(tx, categories, accessToken)
 
@@ -141,7 +137,7 @@ export async function categorizeTxs(txs, settings, catLogCache, accessToken, onP
         tx_id: tx.id, action: 'ai_error',
         cat_before: tx.cat ?? null, cat_after: null,
         note: err.message,
-      }).catch(() => {}) // don't block on log write failure
+      }).catch(() => {})
     }
 
     done++; onProgress?.(done, txs.length)
