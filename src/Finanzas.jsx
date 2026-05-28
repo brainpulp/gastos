@@ -1512,35 +1512,24 @@ function DuplicadosTab({ txs, onDelete }) {
   const S = makeS(dark)
   const muted = dark ? '#8a8aaa' : '#888'
 
-  // Build groups: same (date + ars + identity) → potential duplicate
-  // identity = merchant if non-blank, otherwise raw_desc — avoids false positives
-  // when two unrelated transactions share a date/amount but have no description
+  // Only detect CERTAIN duplicates: ML rows sharing the same base ID (strip _idx suffix)
+  // Bank transactions cannot be reliably deduplicated by date+merchant+amount alone —
+  // same merchant/amount on same date can be multiple legitimate transactions (Uber rides, etc.)
   const groups = useMemo(() => {
     const map = {}
     for (const t of txs) {
-      const identity = (t.merchant || '').trim() || (t.raw_desc || '').trim()
-      if (!identity) continue   // no description at all — skip, can't verify
-      const key = `${t.date}||${String(t.ars)}||${identity}`
-      if (!map[key]) map[key] = []
-      map[key].push(t)
+      const base = mlBaseId(t.id)
+      if (!base) continue   // not an ML transaction — skip
+      if (!map[base]) map[base] = []
+      map[base].push(t)
     }
     return Object.values(map)
       .filter(g => g.length > 1)
-      .map(g => {
-        const bases = g.map(t => mlBaseId(t.id)).filter(Boolean)
-        const uniqueBases = new Set(bases)
-        // Certain = all rows are ML and all share the same base ID
-        const certain = bases.length === g.length && uniqueBases.size === 1
-        return { rows: g, certain }
-      })
-      .sort((a, b) => {
-        if (a.certain !== b.certain) return a.certain ? -1 : 1   // certain first
-        return b.rows.length - a.rows.length
-      })
+      .map(g => ({ rows: g.sort((a, b) => a.id.localeCompare(b.id)), certain: true }))
+      .sort((a, b) => b.rows.length - a.rows.length)
   }, [txs])
 
   const certain = groups.filter(g => g.certain)
-  const uncertain = groups.filter(g => !g.certain)
   const totalExtra = groups.reduce((s, g) => s + g.rows.length - 1, 0)
 
   const doDelete = async (ids) => { await onDelete(ids) }
@@ -1556,27 +1545,19 @@ function DuplicadosTab({ txs, onDelete }) {
     const label = rep.merchant || rep.raw_desc || '(sin descripción)'
     const arsStr = rep.ars != null ? `-$${Math.abs(rep.ars).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '—'
     const usdStr = rep.usd != null ? `-$${Math.abs(rep.usd).toFixed(2)}` : '—'
-    const accent = g.certain ? (dark ? '#1a3a2e' : '#d4edda') : (dark ? '#3a2a1a' : '#fff3cd')
-    const accentBorder = g.certain ? (dark ? '#2a6a4e' : '#c3e6cb') : (dark ? '#6a4a1a' : '#ffc107')
     return (
-      <div key={gi} style={{ marginBottom: 14, border: `1px solid ${accentBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+      <div key={gi} style={{ marginBottom: 14, border: `1px solid ${dark ? '#2a6a4e' : '#c3e6cb'}`, borderRadius: 8, overflow: 'hidden' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: accent, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-            color: g.certain ? (dark ? '#6fcf97' : '#155724') : (dark ? '#f5a623' : '#856404') }}>
-            {g.certain ? '✓ CIERTO' : '? POSIBLE'}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: dark ? '#1a3a2e' : '#d4edda', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{rep.date}</span>
           <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             title={label}>{label}</span>
           <span style={{ fontSize: 12, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{arsStr} · {usdStr}</span>
           <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{g.rows.length}×</span>
-          {g.certain && (
-            <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
-              onClick={() => doDelete(g.rows.slice(1).map(t => t.id))}>
-              🗑 Dejar 1, borrar {g.rows.length - 1}
-            </button>
-          )}
+          <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+            onClick={() => doDelete(g.rows.slice(1).map(t => t.id))}>
+            🗑 Dejar 1, borrar {g.rows.length - 1}
+          </button>
         </div>
         {/* Each row */}
         {g.rows.map((t, ti) => (
@@ -1604,36 +1585,17 @@ function DuplicadosTab({ txs, onDelete }) {
 
   return (
     <div style={S.card}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0, fontSize: 15 }}>🔁 Duplicados</h3>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>🔁 Duplicados ML</h3>
         <span style={{ fontSize: 12, color: muted }}>{groups.length} grupos · {totalExtra} copias extra</span>
+        {groups.length > 0 && (
+          <button style={{ ...S.btnSm('danger'), fontSize: 11, marginLeft: 'auto' }}
+            onClick={() => doDelete(groups.flatMap(g => g.rows.slice(1).map(t => t.id)))}>
+            🗑 Limpiar todos ({totalExtra} copias)
+          </button>
+        )}
       </div>
-      <p style={{ fontSize: 12, color: muted, marginBottom: 14, lineHeight: 1.5 }}>
-        <b style={{ color: dark ? '#6fcf97' : '#155724' }}>✓ CIERTO</b> — mismo ML ID base, mismo monto, misma fecha: definitivamente re-importado.<br/>
-        <b style={{ color: dark ? '#f5a623' : '#856404' }}>? POSIBLE</b> — mismo monto y fecha pero distinto origen: podría ser compra legítima. Revisá antes de borrar.
-      </p>
-
-      {certain.length > 0 && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: dark ? '#6fcf97' : '#155724' }}>Ciertos ({certain.length})</span>
-            <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
-              onClick={() => doDelete(certain.flatMap(g => g.rows.slice(1).map(t => t.id)))}>
-              🗑 Limpiar todos los ciertos ({certain.reduce((s,g) => s + g.rows.length - 1, 0)} copias)
-            </button>
-          </div>
-          {certain.map(renderGroup)}
-        </>
-      )}
-
-      {uncertain.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#f5a623' : '#856404', marginBottom: 8, marginTop: certain.length ? 16 : 0 }}>
-            Posibles — revisá antes de borrar ({uncertain.length})
-          </div>
-          {uncertain.map(renderGroup)}
-        </>
-      )}
+      {groups.map(renderGroup)}
     </div>
   )
 }
