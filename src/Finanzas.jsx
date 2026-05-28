@@ -11,6 +11,7 @@ import { parseXLSX } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadCatLog, loadBlueRates,
+  loadDeletedTransactions, restoreTransaction,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
 
@@ -214,14 +215,14 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml']
+    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'papelera']
     return valid.includes(hash) ? hash : 'dash'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml']
+      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'papelera']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHashChange)
@@ -504,6 +505,7 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
     { id: 'auditoria', label: 'Historial IA' },
     { id: 'ml', label: '📦 ML Import' },
+    { id: 'papelera', label: '🗑 Papelera' },
     { id: 'settings', label: '⚙ Config' },
   ]
 
@@ -532,7 +534,7 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {!['auditoria', 'settings', 'ml'].includes(activeTab) && (
+        {!['auditoria', 'settings', 'ml', 'papelera'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
@@ -576,7 +578,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {filterActive && !['auditoria', 'settings', 'ml'].includes(activeTab) && (
+        {filterActive && !['auditoria', 'settings', 'ml', 'papelera'].includes(activeTab) && (
           <div style={{
             background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
             marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
@@ -622,6 +624,7 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
+        {activeTab === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
           cats={cats}
@@ -1489,6 +1492,121 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
           Al importar XLSX, la tasa también se asigna por fecha automáticamente.
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Papelera ─────────────────────────────────────────────────────────────────
+
+function PapeleraTab({ onRestore }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const [rows, setRows] = useState(null)   // null = not loaded yet
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [busy, setBusy] = useState(false)
+  const muted = dark ? '#8a8aaa' : '#888'
+
+  const load = async () => {
+    setLoading(true)
+    try { setRows(await loadDeletedTransactions()) }
+    catch (e) { alert('Error: ' + e.message) }
+    finally { setLoading(false) }
+  }
+
+  const restore = async (ids) => {
+    setBusy(true)
+    try {
+      await Promise.all(ids.map(id => restoreTransaction(id)))
+      ids.forEach(id => onRestore(id))
+      setRows(prev => prev.filter(r => !ids.includes(r.id)))
+      setSelectedIds(new Set())
+    } catch (e) { alert('Error: ' + e.message) }
+    finally { setBusy(false) }
+  }
+
+  const visible = (rows || []).filter(r => {
+    const q = search.toLowerCase()
+    return !q || (r.merchant||'').toLowerCase().includes(q) || (r.raw_desc||'').toLowerCase().includes(q) || (r.cat||'').toLowerCase().includes(q)
+  })
+
+  const allSelected = visible.length > 0 && visible.every(r => selectedIds.has(r.id))
+  const someSelected = visible.some(r => selectedIds.has(r.id))
+  const toggleRow = id => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAll = checked => setSelectedIds(checked ? new Set(visible.map(r => r.id)) : new Set())
+
+  const fmt = (n) => n == null ? '—' : `$${Math.abs(n).toLocaleString('es-AR', { maximumFractionDigits: 0 })}`
+
+  return (
+    <div style={S.card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>🗑 Papelera</h3>
+        {rows === null
+          ? <button style={{ ...S.btn('primary'), padding: '5px 16px', fontSize: 12 }} onClick={load} disabled={loading}>
+              {loading ? 'Cargando…' : 'Cargar eliminadas'}
+            </button>
+          : <span style={{ fontSize: 12, color: muted }}>{rows.length} transacciones eliminadas</span>}
+        {rows !== null && (
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar…"
+            style={{ ...S.input, fontSize: 12, width: 200 }} />
+        )}
+        {selectedIds.size > 0 && (
+          <button style={{ ...S.btn('primary'), padding: '4px 14px', fontSize: 12, marginLeft: 'auto' }}
+            disabled={busy} onClick={() => restore([...selectedIds])}>
+            ↩ Restaurar {selectedIds.size}
+          </button>
+        )}
+      </div>
+
+      {rows !== null && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ ...S.table, fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, width: 28 }}>
+                  <input type="checkbox" checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = !allSelected && someSelected }}
+                    onChange={e => toggleAll(e.target.checked)} />
+                </th>
+                <th style={S.th}>Fecha</th>
+                <th style={S.th}>Comercio</th>
+                <th style={S.th}>Cat</th>
+                <th style={S.th}>Banco</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+                <th style={{ ...S.th, whiteSpace: 'nowrap' }}>Eliminada</th>
+                <th style={S.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(r => (
+                <tr key={r.id} style={{ opacity: 0.75 }}>
+                  <td style={{ ...S.td, width: 28, textAlign: 'center' }}>
+                    <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleRow(r.id)} />
+                  </td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: muted }}>{r.date}</td>
+                  <td style={{ ...S.td, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={r.merchant || r.raw_desc}>{r.merchant || r.raw_desc || '—'}</td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: muted }}>{r.cat || '—'}</td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: muted }}>{r.bank || '—'}</td>
+                  <td style={{ ...S.td, textAlign: 'right', color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{fmt(r.ars)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', color: muted, whiteSpace: 'nowrap' }}>{r.usd != null ? `$${Math.abs(r.usd).toFixed(2)}` : '—'}</td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', fontSize: 11, color: muted }}>{r.deleted_at ? r.deleted_at.slice(0, 10) : '—'}</td>
+                  <td style={{ ...S.td }}>
+                    <button style={{ ...S.btnSm(), fontSize: 11 }} disabled={busy} onClick={() => restore([r.id])}>↩</button>
+                  </td>
+                </tr>
+              ))}
+              {visible.length === 0 && (
+                <tr><td colSpan={9} style={{ ...S.td, textAlign: 'center', color: muted, padding: 24 }}>
+                  {search ? 'Sin resultados' : 'No hay transacciones eliminadas'}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

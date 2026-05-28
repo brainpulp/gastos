@@ -116,6 +116,35 @@ export async function softDeleteTransaction(id) {
   if (error) throw error
 }
 
+/** Load all soft-deleted transactions for the current user */
+export async function loadDeletedTransactions() {
+  const PAGE = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
+/** Restore a soft-deleted transaction (clears deleted_at) */
+export async function restoreTransaction(id) {
+  const { error } = await supabase
+    .from('transactions')
+    .update({ deleted_at: null })
+    .eq('id', id)
+  if (error) throw error
+}
+
 /** Bulk update cat on all non-deleted transactions matching oldCat */
 export async function bulkUpdateCat(oldCat, newCat) {
   const { error } = await supabase
