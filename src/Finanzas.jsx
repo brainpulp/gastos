@@ -50,6 +50,22 @@ const BANK_STYLE = {
 
 const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
 
+/**
+ * Boolean search: "word1 AND word2 OR word3"
+ * OR has lowest precedence; AND (or plain spaces) is implicit AND.
+ * Each term matched against merchant, raw_desc, cat, notes.
+ */
+function matchesBoolSearch(tx, raw) {
+  if (!raw) return true
+  const haystack = [tx.merchant, tx.raw_desc, tx.cat, tx.notes]
+    .filter(Boolean).map(s => s.toLowerCase()).join(' ')
+  const orGroups = raw.toLowerCase().split(/\bor\b/)
+  return orGroups.some(group => {
+    const terms = group.split(/\band\b|\s+/).map(s => s.trim()).filter(Boolean)
+    return terms.every(term => haystack.includes(term))
+  })
+}
+
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 const fmtDate = (s) => {
@@ -293,11 +309,7 @@ export default function Finanzas({ session, onLogout }) {
     if (catFs.length && !catFs.includes(t.cat) && !(isUncat(t) && catFs.includes('Uncategorized Expenses'))) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (showUncatOnly && !isUncat(t)) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
-            t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
-    }
+    if (search && !matchesBoolSearch(t, search)) return false
     if (amountMin !== '' || amountMax !== '') {
       const val = Math.abs(t[amountCur] ?? 0)
       if (amountMin !== '' && val < parseFloat(amountMin)) return false
