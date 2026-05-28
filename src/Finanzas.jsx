@@ -456,6 +456,12 @@ export default function Finanzas({ session, onLogout }) {
     await softDeleteTransaction(id)
     setTxs(prev => prev.filter(t => t.id !== id))
   }
+  const bulkDeleteTxs = async (ids) => {
+    if (!confirm(`¿Eliminar ${ids.length} transacciones? (soft delete)`)) return
+    await Promise.all(ids.map(id => softDeleteTransaction(id)))
+    const idSet = new Set(ids)
+    setTxs(prev => prev.filter(t => !idSet.has(t.id)))
+  }
 
   const renameCat = async (oldCat, newCat) => {
     await bulkUpdateCat(oldCat, newCat)
@@ -612,7 +618,7 @@ export default function Finanzas({ session, onLogout }) {
             onCatClick={goToCat}
           />
         )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} onAdd={addTx} badge={badge} cats={cats} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkDelete={bulkDeleteTxs} onBulkUpdate={bulkUpdateTxs} onAdd={addTx} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
@@ -833,7 +839,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, onAdd, badge, cats }) {
+function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, badge, cats }) {
   const dark = useTheme()
   const S = makeS(dark)
   const [editingId, setEditingId] = useState(null)
@@ -967,6 +973,12 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, onAdd, badge, cats }) {
           <button disabled={!bulkCat || bulkApplying}
             style={{ ...S.btn('primary'), padding: '4px 14px', fontSize: 12, opacity: (!bulkCat || bulkApplying) ? 0.5 : 1, cursor: (!bulkCat || bulkApplying) ? 'default' : 'pointer' }}
             onClick={applyBulkCat}>{bulkApplying ? 'Aplicando…' : 'Aplicar'}</button>
+          <div style={{ width: 1, height: 22, background: dark ? '#444' : '#ccc', margin: '0 4px' }} />
+          <button
+            style={{ ...S.btn('danger'), padding: '4px 14px', fontSize: 12 }}
+            onClick={() => onBulkDelete([...selectedIds]).then(() => setSelectedIds(new Set()))}>
+            🗑 Eliminar {selectedIds.size}
+          </button>
         </div>
       )}
 
