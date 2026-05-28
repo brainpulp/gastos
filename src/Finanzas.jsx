@@ -239,7 +239,7 @@ export default function Finanzas({ session, onLogout }) {
   const [bankFs, setBankFs] = useState([])
   const [search, setSearch] = useState('')
   const [showUncatOnly, setShowUncatOnly] = useState(false)
-  const [amountMin, setAmountMin] = useState('')
+  const [amountMin, setAmountMin] = useState('5')
   const [amountMax, setAmountMax] = useState('')
   const [amountCur, setAmountCur] = useState('usd')
   const [dark, setDark] = useState(() => localStorage.getItem('gastos-theme') === 'dark')
@@ -558,6 +558,10 @@ export default function Finanzas({ session, onLogout }) {
                 <input type="number" style={{ ...S.input, width: 80 }} placeholder="min" value={amountMin} onChange={e => setAmountMin(e.target.value)} />
                 <span style={{ fontSize: 12, color: '#aaa' }}>—</span>
                 <input type="number" style={{ ...S.input, width: 80 }} placeholder="max" value={amountMax} onChange={e => setAmountMax(e.target.value)} />
+                <button style={{ ...S.btnSm(amountMin === '5' && amountCur === 'usd' ? 'active' : 'ghost'), fontSize: 11, padding: '3px 8px' }}
+                  onClick={() => { setAmountCur('usd'); setAmountMin(amountMin === '5' ? '' : '5') }}>
+                  {amountMin === '5' && amountCur === 'usd' ? '✓ ' : ''}ocultar &lt;$5
+                </button>
               </div>
             </div>
             <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
