@@ -1602,18 +1602,25 @@ function MLImportTab({ onImport }) {
     if (!toSend.length) { setMsg({ type: 'err', text: 'Ninguna compra tiene categoría asignada aún.' }); return }
     setImporting(true)
     try {
-      const txObjs = toSend.map(r => ({
-        id: `ml_${r.mlaId || r.idx}_${(r.date||'').replace(/-/g,'')}_${r.idx}`,
-        date: r.date,
-        merchant: r.name.slice(0, 200),
-        raw_desc: `ML: ${r.seller}${r.detail ? ' · ' + r.detail : ''}`,
-        bank: 'Santander',
-        cat: r.cat || null,
-        ars: r.ars != null ? -Math.abs(r.ars) : null,
-        usd: null,
-        xfer: false,
-        ai_assigned: false,
-      }))
+      const blueRates = await loadBlueRates()
+      const txObjs = toSend.map(r => {
+        const ars = r.ars != null ? -Math.abs(r.ars) : null
+        const rate = r.date ? blueRates[r.date] : null
+        const usd = ars != null && rate ? Math.round((ars / rate) * 100) / 100 : null
+        return {
+          id: `ml_${r.mlaId || r.idx}_${(r.date||'').replace(/-/g,'')}_${r.idx}`,
+          date: r.date,
+          merchant: r.name.slice(0, 200),
+          raw_desc: `ML: ${r.seller}${r.detail ? ' · ' + r.detail : ''}`,
+          bank: 'Santander',
+          cat: r.cat || null,
+          ars,
+          usd,
+          usd_rate: rate ?? null,
+          xfer: false,
+          ai_assigned: false,
+        }
+      })
       const { skipped } = await upsertTransactions(txObjs)
       onImport(txObjs)
       setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
