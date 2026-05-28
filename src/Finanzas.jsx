@@ -215,14 +215,14 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'papelera']
+    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'duplicados', 'papelera']
     return valid.includes(hash) ? hash : 'dash'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'papelera']
+      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'duplicados', 'papelera']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHashChange)
@@ -505,6 +505,7 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
     { id: 'auditoria', label: 'Historial IA' },
     { id: 'ml', label: '📦 ML Import' },
+    { id: 'duplicados', label: '🔁 Duplicados' },
     { id: 'papelera', label: '🗑 Papelera' },
     { id: 'settings', label: '⚙ Config' },
   ]
@@ -534,7 +535,7 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {!['auditoria', 'settings', 'ml', 'papelera'].includes(activeTab) && (
+        {!['auditoria', 'settings', 'ml', 'duplicados', 'papelera'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
@@ -578,7 +579,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {filterActive && !['auditoria', 'settings', 'ml', 'papelera'].includes(activeTab) && (
+        {filterActive && !['auditoria', 'settings', 'ml', 'duplicados', 'papelera'].includes(activeTab) && (
           <div style={{
             background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
             marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
@@ -624,6 +625,7 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
+        {activeTab === 'duplicados' && <DuplicadosTab txs={txs} onDelete={bulkDeleteTxs} />}
         {activeTab === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
@@ -1492,6 +1494,92 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
           Al importar XLSX, la tasa también se asigna por fecha automáticamente.
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Duplicados ───────────────────────────────────────────────────────────────
+
+function DuplicadosTab({ txs, onDelete }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const [deletingIds, setDeletingIds] = useState(new Set())
+  const muted = dark ? '#8a8aaa' : '#888'
+
+  // Group by date+merchant+ars, keep groups with >1 row
+  const groups = useMemo(() => {
+    const map = {}
+    for (const t of txs) {
+      const key = `${t.date}||${t.merchant||''}||${t.ars}`
+      if (!map[key]) map[key] = []
+      map[key].push(t)
+    }
+    return Object.values(map).filter(g => g.length > 1).sort((a, b) => b.length - a.length || b[0].date.localeCompare(a[0].date))
+  }, [txs])
+
+  const totalDups = groups.reduce((s, g) => s + g.length - 1, 0)
+
+  const deleteOne = async (id) => {
+    setDeletingIds(prev => new Set([...prev, id]))
+    await onDelete([id])
+    setDeletingIds(prev => { const n = new Set(prev); n.delete(id); return n })
+  }
+
+  const deleteAllButFirst = async (group) => {
+    const toDelete = group.slice(1).map(t => t.id)
+    await onDelete(toDelete)
+  }
+
+  if (!groups.length) return (
+    <div style={{ ...S.card, textAlign: 'center', color: muted, padding: 40 }}>
+      ✅ No se encontraron transacciones duplicadas.
+    </div>
+  )
+
+  return (
+    <div style={S.card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>🔁 Duplicados</h3>
+        <span style={{ fontSize: 12, color: muted }}>{groups.length} grupos · {totalDups} copias extra</span>
+      </div>
+
+      {groups.map((group, gi) => {
+        const rep = group[0]
+        const arsAbs = rep.ars != null ? `$${Math.abs(rep.ars).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '—'
+        const usdAbs = rep.usd != null ? `$${Math.abs(rep.usd).toFixed(2)}` : '—'
+        return (
+          <div key={gi} style={{ marginBottom: 16, border: `1px solid ${dark ? '#2a2a4a' : '#e0e0e0'}`, borderRadius: 8, overflow: 'hidden' }}>
+            {/* Group header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: dark ? '#1a1a3a' : '#f0f4ff', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 12 }}>{rep.date}</span>
+              <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={rep.merchant}>{rep.merchant || rep.raw_desc || '—'}</span>
+              <span style={{ fontSize: 12, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{arsAbs} · {usdAbs}</span>
+              <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{group.length}× duplicado</span>
+              <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+                onClick={() => deleteAllButFirst(group)}>
+                🗑 Dejar 1, borrar {group.length - 1}
+              </button>
+            </div>
+            {/* Each copy */}
+            {group.map((t, ti) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',
+                background: ti === 0 ? (dark ? '#111128' : '#f9fbff') : (dark ? '#0e0e1e' : '#fff'),
+                borderTop: ti > 0 ? `1px solid ${dark ? '#1e1e3e' : '#f0f0f0'}` : undefined }}>
+                {ti === 0 && <span style={{ fontSize: 10, color: dark ? '#6fcf97' : '#00a650', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ KEEPER</span>}
+                {ti > 0  && <span style={{ fontSize: 10, color: muted, whiteSpace: 'nowrap' }}>copia {ti}</span>}
+                <span style={{ fontSize: 11, color: muted, fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.id}</span>
+                <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{t.cat || '—'}</span>
+                {ti > 0 && (
+                  <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+                    disabled={deletingIds.has(t.id)}
+                    onClick={() => deleteOne(t.id)}>🗑</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }
