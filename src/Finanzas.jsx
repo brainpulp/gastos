@@ -1583,9 +1583,9 @@ function MLImportTab({ onImport }) {
   const uncat = selected.filter(r => !r.cat).length
 
   const doImport = async () => {
-    // Only import rows that are checked, have a date, AND have a category — skip the rest silently
-    const toSend = selected.filter(r => r.date && r.cat)
-    if (!toSend.length) { setMsg({ type: 'err', text: 'Ninguna seleccionada tiene categoría asignada.' }); return }
+    // Import all rows that have a category, regardless of checkbox state
+    const toSend = rows.filter(r => r.date && r.cat)
+    if (!toSend.length) { setMsg({ type: 'err', text: 'Ninguna compra tiene categoría asignada aún.' }); return }
     setImporting(true)
     try {
       const txObjs = toSend.map(r => ({
