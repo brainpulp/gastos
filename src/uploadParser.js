@@ -93,7 +93,9 @@ function parseSantanderAR(workbook, usdRate) {
     return {
       id: `u_${fecha}_${referencia}`,
       date: fecha,
-      cat: isXfer ? (ars > 0 ? 'Interbank incoming' : 'Interbank outgoing') : null,
+      cat: isXfer
+        ? (ars > 0 ? 'Interbank incoming' : 'Interbank outgoing')
+        : detectCat(txType + ' ' + merchant),
       bank: 'Santander',
       usd: +(ars / usdRate).toFixed(2),
       ars,

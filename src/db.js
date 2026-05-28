@@ -95,6 +95,18 @@ export async function upsertTransactions(txs) {
   return { skipped: [...deletedSet], inserted: insertedCount, updated: updatedCount }
 }
 
+/** Insert a single new transaction; generates a u_* id. Returns the new id. */
+export async function insertTransaction(fields) {
+  const { data: { user }, error: uErr } = await supabase.auth.getUser()
+  if (uErr) throw uErr
+  const id = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  const { error } = await supabase
+    .from('transactions')
+    .insert({ ...fields, id, user_id: user.id })
+  if (error) throw error
+  return id
+}
+
 /** Soft-delete a transaction (sets deleted_at, does not physically remove) */
 export async function softDeleteTransaction(id) {
   const { error } = await supabase

@@ -10,15 +10,9 @@ import * as XLSX from 'xlsx'
 import { parseXLSX } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
-  bulkUpdateCat, bulkUpdateByIds, loadSettings, saveSettings, loadCatLog, loadBlueRates,
+  bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadCatLog, loadBlueRates,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
-import { detectSourceType, parseStaging, autoMatch } from './stagingParser.js'
-import {
-  loadStagingSources, importStagingSource, deleteStagingSource,
-  loadAllStagingRows, saveDecision, saveAutoMatches, bulkConfirmHighConfidence,
-  mergeStagingNew, loadSourceStats,
-} from './stagingDb.js'
 
 const ThemeCtx = createContext(false)
 const useTheme = () => useContext(ThemeCtx)
@@ -49,22 +43,6 @@ const BANK_STYLE = {
 }
 
 const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
-
-/**
- * Boolean search: "word1 AND word2 OR word3"
- * OR has lowest precedence; AND (or plain spaces) is implicit AND.
- * Each term matched against merchant, raw_desc, cat, notes.
- */
-function matchesBoolSearch(tx, raw) {
-  if (!raw) return true
-  const haystack = [tx.merchant, tx.raw_desc, tx.cat, tx.notes]
-    .filter(Boolean).map(s => s.toLowerCase()).join(' ')
-  const orGroups = raw.toLowerCase().split(/\bor\b/)
-  return orGroups.some(group => {
-    const terms = group.split(/\band\b|\s+/).map(s => s.trim()).filter(Boolean)
-    return terms.every(term => haystack.includes(term))
-  })
-}
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -236,21 +214,20 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'forensic']
+    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml']
     return valid.includes(hash) ? hash : 'dash'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'forensic']
+      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
   const [uploadMsg, setUploadMsg] = useState(null)
-  const [categorizing, setCategorizing] = useState(false)
   const fileRef = useRef()
 
   // Filters
@@ -306,10 +283,14 @@ export default function Finanzas({ session, onLogout }) {
     if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
-    if (catFs.length && !catFs.includes(t.cat) && !(isUncat(t) && catFs.includes('Uncategorized Expenses'))) return false
+    if (catFs.length && !catFs.includes(t.cat)) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (showUncatOnly && !isUncat(t)) return false
-    if (search && !matchesBoolSearch(t, search)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
+            t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
+    }
     if (amountMin !== '' || amountMax !== '') {
       const val = Math.abs(t[amountCur] ?? 0)
       if (amountMin !== '' && val < parseFloat(amountMin)) return false
@@ -332,9 +313,6 @@ export default function Finanzas({ session, onLogout }) {
     () => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)),
     [filtered]
   )
-
-  // Uncategorized txs within the current filtered view (drives categorize button)
-  const uncatFiltered = useMemo(() => filtered.filter(isUncat), [filtered])
 
   const totalUSD = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.usd || 0), 0), [expenseTxs])
   const totalARS = useMemo(() => expenseTxs.reduce((s, t) => s + (+t.ars || 0), 0), [expenseTxs])
@@ -420,74 +398,24 @@ export default function Finanzas({ session, onLogout }) {
         const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
         return { ...tx, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
       })
-      setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
-      const { skipped, inserted, updated } = await upsertTransactions(enriched)
-      const fresh = await loadTransactions()
-      setTxs(fresh)
-      const parts = [`${inserted} nuevas`]
-      if (updated > 0) parts.push(`${updated} actualizadas`)
-      if (skipped.length > 0) parts.push(`${skipped.length} omitidas (borradas previamente)`)
-      setUploadMsg({ loading: false, text: `✅ ${count} procesadas: ${parts.join(', ')}` })
-    } catch (err) {
-      setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
-    }
-  }
-
-  const handleCategorize = async () => {
-    const toProcess = filtered.filter(isUncat)
-    if (!toProcess.length || categorizing) return
-    setCategorizing(true)
-    setUploadMsg({ loading: true, text: `Categorizando 0/${toProcess.length}…` })
-    try {
-      // Build merchant → { cat: count } from all existing categorized transactions
-      const merchantHistory = {}
-      for (const tx of txs) {
-        const key = tx.merchant || tx.raw_desc || null
-        if (!key || !tx.cat || isUncat(tx) || tx.deleted_at) continue
-        if (!merchantHistory[key]) merchantHistory[key] = {}
-        merchantHistory[key][tx.cat] = (merchantHistory[key][tx.cat] || 0) + 1
-      }
-
+      setUploadMsg({ loading: true, text: `Categorizando ${count} transacciones…` })
       const catLog = await loadCatLog({ limit: 1000 })
       const categorized = await categorizeTxs(
-        toProcess,
+        enriched,
         settings,
         catLog,
         session?.access_token,
         (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
-        merchantHistory,
       )
-      await upsertTransactions(categorized)
+      setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
+      const { skipped } = await upsertTransactions(categorized)
       const fresh = await loadTransactions()
       setTxs(fresh)
-      setUploadMsg({ loading: false, text: `✅ ${categorized.length} transacciones categorizadas` })
+      const skipMsg = skipped.length ? ` (${skipped.length} omitidas — borradas previamente)` : ''
+      setUploadMsg({ loading: false, text: `✅ ${count} transacciones importadas${skipMsg}` })
     } catch (err) {
       setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
-    } finally {
-      setCategorizing(false)
     }
-  }
-
-  const handleExportXLSX = () => {
-    if (!filtered.length) return
-    const rows = filtered.map(t => ({
-      Fecha:       t.date ?? '',
-      Merchant:    t.merchant ?? '',
-      Descripción: t.raw_desc ?? '',
-      Categoría:   t.cat ?? '',
-      Banco:       t.bank ?? '',
-      ARS:         t.ars ?? '',
-      USD:         t.usd ?? '',
-      'USD Rate':  t.usd_rate ?? '',
-      Notas:       t.notes ?? '',
-      Referencia:  t.referencia ?? '',
-      ID:          t.id ?? '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Transacciones')
-    const label = filterActive ? 'filtrado' : 'todas'
-    XLSX.writeFile(wb, `gastos_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const goToMonth = (ym) => {
@@ -512,6 +440,11 @@ export default function Finanzas({ session, onLogout }) {
   const updateTx = async (id, changes) => {
     await updateTransaction(id, changes)
     setTxs(prev => prev.map(t => t.id === id ? { ...t, ...changes } : t))
+  }
+  const addTx = async (fields) => {
+    const id = await insertTransaction(fields)
+    const newRow = { ...fields, id, created_at: new Date().toISOString(), deleted_at: null }
+    setTxs(prev => [newRow, ...prev])
   }
   const bulkUpdateTxs = async (ids, fields) => {
     const idSet = new Set(ids)
@@ -564,7 +497,7 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'txs', label: 'Transacciones' },
     { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
     { id: 'auditoria', label: 'Historial IA' },
-    { id: 'forensic', label: '🔍 Forensic' },
+    { id: 'ml', label: '📦 ML Import' },
     { id: 'settings', label: '⚙ Config' },
   ]
 
@@ -577,24 +510,6 @@ export default function Finanzas({ session, onLogout }) {
         <span style={S.spacer} />
         <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
           {dark ? '☀️' : '🌙'}
-        </button>
-        {uncatFiltered.length > 0 && (
-          <button
-            style={{ padding: '5px 12px', fontSize: 13, cursor: categorizing ? 'default' : 'pointer', color: categorizing ? '#888' : '#ccc', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: categorizing ? 0.6 : 1 }}
-            onClick={handleCategorize}
-            disabled={categorizing}
-            title={`Categorizar ${uncatFiltered.length} transacciones sin categoría en la vista actual`}
-          >
-            🤖 Categorizar ({uncatFiltered.length})
-          </button>
-        )}
-        <button
-          style={{ padding: '5px 12px', fontSize: 13, cursor: filtered.length ? 'pointer' : 'default', color: filtered.length ? '#ccc' : '#555', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
-          onClick={handleExportXLSX}
-          disabled={!filtered.length}
-          title={`Exportar ${filtered.length} transacciones visibles a XLSX`}
-        >
-          📤 Exportar ({filtered.length})
         </button>
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
@@ -611,7 +526,7 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {!['auditoria', 'settings', 'forensic'].includes(activeTab) && (
+        {!['auditoria', 'settings', 'ml'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
@@ -655,7 +570,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {filterActive && !['auditoria', 'settings', 'forensic'].includes(activeTab) && (
+        {filterActive && !['auditoria', 'settings', 'ml'].includes(activeTab) && (
           <div style={{
             background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
             marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
@@ -697,10 +612,10 @@ export default function Finanzas({ session, onLogout }) {
             onCatClick={goToCat}
           />
         )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} badge={badge} cats={cats} />}
+        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkUpdate={bulkUpdateTxs} onAdd={addTx} badge={badge} cats={cats} />}
         {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
-        {activeTab === 'forensic' && <ForensicTab txs={txs} blueRates={blueRates} />}
+        {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
           cats={cats}
@@ -918,7 +833,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
 
 // ─── Transacciones ────────────────────────────────────────────────────────────
 
-function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
+function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, onAdd, badge, cats }) {
   const dark = useTheme()
   const S = makeS(dark)
   const [editingId, setEditingId] = useState(null)
@@ -927,6 +842,9 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkCat, setBulkCat] = useState('')
+  const [addingNew, setAddingNew] = useState(false)
+  const [newTx, setNewTx] = useState({})
+  const [saving, setSaving] = useState(false)
   const [bulkApplying, setBulkApplying] = useState(false)
   const rowRefs = useRef({})
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' })
@@ -1032,13 +950,9 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
         <span style={{ fontSize: 11, color: '#bbb' }}>click en cualquier campo para editar · Enter para guardar</span>
       </div>
 
-      {selectedIds.size > 0 && (() => {
-        const selTxs = txs.filter(t => selectedIds.has(t.id))
-        const selUSD = selTxs.reduce((s, t) => s + (t.usd || 0), 0)
-        return (
+      {selectedIds.size > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: dark ? '#1a2040' : '#e8f0fe', borderRadius: 8, flexWrap: 'wrap', border: `1px solid ${dark ? '#2a3a7e' : '#c5d8fc'}` }}>
           <span style={{ fontWeight: 700, fontSize: 13, color: dark ? '#a0c0ff' : '#1a56db' }}>{selectedIds.size} seleccionadas</span>
-          <span style={{ fontSize: 12, color: selUSD < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 600 }}>{fmtUSD(selUSD)}</span>
           <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={clearSelection}>✕ Limpiar</button>
           {selectedIds.size < txs.length && (
             <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={selectAllFiltered}>Seleccionar todas ({txs.length})</button>
@@ -1054,8 +968,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
             style={{ ...S.btn('primary'), padding: '4px 14px', fontSize: 12, opacity: (!bulkCat || bulkApplying) ? 0.5 : 1, cursor: (!bulkCat || bulkApplying) ? 'default' : 'pointer' }}
             onClick={applyBulkCat}>{bulkApplying ? 'Aplicando…' : 'Aplicar'}</button>
         </div>
-        )
-      })()}
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={S.table}>
@@ -1156,7 +1069,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkUpdate, badge, cats }) {
                       : fmtARS(tx.ars)}
                   </td>
 
-                  <td style={cellStyle({ textAlign: 'right', fontSize: 12, color: (tx.usd ?? 0) > 0 ? '#27ae60' : '#555' })} onClick={clickCell(tx, 'usd')}>
+                  <td style={cellStyle({ textAlign: 'right', color: '#555', fontSize: 12 })} onClick={clickCell(tx, 'usd')}>
                     {editing
                       ? <input type="number" style={{ ...iStyle, width: 90, textAlign: 'right', fontSize: 12 }} value={editState.usd} onChange={set('usd')} onKeyDown={onEnter(tx)} autoFocus={focusField === 'usd'} />
                       : fmtUSD(tx.usd)}
@@ -1568,644 +1481,184 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
   )
 }
 
-// ─── Forensic Tab ─────────────────────────────────────────────────────────────
-// Side-by-side review: external source rows vs canonical DB transactions.
-// Writes only to staging_* and forensic_links — never touches transactions.
+// ─── ML Import ────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS = {
-  unreviewed: { label: 'Sin revisar', color: '#888' },
-  pending:    { label: 'Pendiente',   color: '#e67e22' },
-  matched:    { label: '✓ Match',     color: '#27ae60' },
-  no_match:   { label: '✗ No match', color: '#e74c3c' },
-  new:        { label: '+ Nuevo',     color: '#3498db' },
-  excluded:   { label: '— Excluir',  color: '#aaa' },
-  merged:     { label: '↑ Merged',   color: '#8e44ad' },
+const ML_CATS = ['Shopping', 'Mocoreta', 'Carhué obra', 'Arcos', 'El Dorado', 'Delta']
+
+const MONTHS_ES = { enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',
+  julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12' }
+
+function parseMLDate(s) {
+  const m = (s || '').trim().match(/(\d+)\s+de\s+(\w+)\s+de\s+(\d{4})/i)
+  if (!m) return null
+  return `${m[3]}-${MONTHS_ES[m[2].toLowerCase()] || '01'}-${m[1].padStart(2, '0')}`
 }
 
-function ConfidenceBar({ value }) {
-  const pct = Math.round((value ?? 0) * 100)
-  const color = pct >= 80 ? '#27ae60' : pct >= 50 ? '#e67e22' : '#e74c3c'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ width: 60, height: 6, background: '#ddd', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
-      </div>
-      <span style={{ fontSize: 11, color, fontWeight: 600 }}>{pct}%</span>
-    </div>
-  )
+function parseMLARS(s) {
+  if (!s || s.trim() === '-') return null
+  return parseFloat(s.replace(/[$\s.]/g, '').replace(',', '.')) || null
 }
 
-// ─── MatchPicker — inline manual match search ─────────────────────────────────
-function MatchPicker({ stagingRow, txs, onSelect, onClose }) {
+function MLImportTab({ onImport }) {
   const dark = useTheme()
   const S = makeS(dark)
-  const muted  = dark ? '#8a8aaa' : '#888'
-  const text   = dark ? '#e0e0e0' : '#1a1a2e'
-  const inputBg  = dark ? '#12121f' : '#fff'
-  const inputBdr = dark ? '#2a2a3e' : '#ddd'
-  const hoverBg  = dark ? '#1a2a3a' : '#eff6ff'
-
+  const [rows, setRows] = useState([])
   const [search, setSearch] = useState('')
-  const inputRef = useRef()
-  useEffect(() => { inputRef.current?.focus() }, [])
-
-  const baseDate = useMemo(() => new Date(stagingRow.date + 'T12:00:00'), [stagingRow.date])
-
-  const candidates = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    const results = txs.filter(tx => {
-      if (tx.deleted_at) return false
-      const daysDiff = Math.abs((new Date(tx.date + 'T12:00:00') - baseDate) / 86400000)
-      if (daysDiff > 14) return false
-      if (!q) return true
-      return (tx.merchant || '').toLowerCase().includes(q) ||
-             (tx.raw_desc  || '').toLowerCase().includes(q)
-    })
-    results.sort((a, b) =>
-      Math.abs(new Date(a.date + 'T12:00:00') - baseDate) -
-      Math.abs(new Date(b.date + 'T12:00:00') - baseDate)
-    )
-    return results.slice(0, 12)
-  }, [txs, baseDate, search])
-
-  return (
-    <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8,
-      background: dark ? '#0f1a2a' : '#f0f7ff',
-      border: `1px solid ${dark ? '#2a5a8a' : '#bfdbfe'}` }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: muted, flexShrink: 0 }}>
-          Buscar tx ±14 días de {stagingRow.date}:
-        </span>
-        <input ref={inputRef} value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="descripción / merchant…"
-          style={{ flex: 1, padding: '4px 8px', borderRadius: 6, fontSize: 12,
-            border: `1px solid ${inputBdr}`, background: inputBg, color: text,
-            outline: 'none' }} />
-        <button onClick={onClose} style={{ ...S.btnSm(), fontSize: 11 }}>✕ Cerrar</button>
-      </div>
-      {candidates.length === 0 && (
-        <div style={{ fontSize: 12, color: muted, padding: '4px 0' }}>
-          Sin resultados. Probá ampliar la búsqueda.
-        </div>
-      )}
-      {candidates.map(tx => (
-        <div key={tx.id} onClick={() => onSelect(tx)}
-          style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '5px 8px',
-            borderRadius: 6, cursor: 'pointer', fontSize: 12,
-            transition: 'background 0.1s' }}
-          onMouseEnter={e => e.currentTarget.style.background = hoverBg}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <span style={{ color: muted, flexShrink: 0, width: 80 }}>{tx.date}</span>
-          <span style={{ color: text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tx.merchant || tx.raw_desc || '—'}
-          </span>
-          <span style={{ flexShrink: 0, color: (tx.usd ?? 0) < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60',
-            fontWeight: 500 }}>
-            {fmtUSD(tx.usd)}
-          </span>
-          {tx.cat && (
-            <span style={{ ...badge(tx.cat), fontSize: 10 }}>{tx.cat}</span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ForensicTab({ txs, blueRates = {} }) {
-  const dark = useTheme()
-  const S = makeS(dark)
-  const inputBg  = dark ? '#12121f' : '#fff'
-  const inputBdr = dark ? '#2a2a3e' : '#ddd'
-  const text     = dark ? '#e0e0e0' : '#1a1a2e'
-  const muted    = dark ? '#8a8aaa' : '#888'
-  const cardBg   = dark ? '#1a1a2e' : '#fff'
-  const subBg    = dark ? '#12121f' : '#f8f8f8'
-
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [sources, setSources]         = useState([])
-  const [activeSrcId, setActiveSrcId] = useState(null)
-  const [allRows, setAllRows]         = useState([])   // all staging rows for active source
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [page, setPage]               = useState(0)
-  const [msg, setMsg]                 = useState(null) // { text, error? }
-  const [matching, setMatching]       = useState(false)
-  const [importing, setImporting]     = useState(false)
-  const [merging, setMerging]         = useState(false)
-  const [pickingMatchFor, setPickingMatchFor] = useState(null) // stagingId | null
-  const [sourceStats, setSourceStats] = useState({})           // { sourceId: counts }
-  const [pendingImport, setPendingImport] = useState(null) // { rows, sourceType, fileName }
-  const [importName, setImportName]   = useState('')
+  const [importing, setImporting] = useState(false)
+  const [msg, setMsg] = useState(null)
   const fileRef = useRef()
 
-  const PAGE_SIZE = 50
-
-  // ── Build txs index (id → tx) for displaying matched main tx ───────────────
-  const txIndex = useMemo(() => {
-    const m = {}
-    for (const tx of txs) m[tx.id] = tx
-    return m
-  }, [txs])
-
-  // ── Load sources on mount + stats for each ────────────────────────────────
-  useEffect(() => {
-    loadStagingSources().then(async srcs => {
-      setSources(srcs)
-      const entries = await Promise.all(srcs.map(async s => [s.id, await loadSourceStats(s.id)]))
-      setSourceStats(Object.fromEntries(entries))
-    }).catch(e => setMsg({ text: e.message, error: true }))
-  }, [])
-
-  // ── Load rows when active source changes ───────────────────────────────────
-  useEffect(() => {
-    if (!activeSrcId) { setAllRows([]); return }
-    setMsg({ text: 'Cargando…' })
-    loadAllStagingRows(activeSrcId)
-      .then(rows => { setAllRows(rows); setPage(0); setMsg(null) })
-      .catch(e => setMsg({ text: e.message, error: true }))
-  }, [activeSrcId])
-
-  // ── Filtered + paged rows ─────────────────────────────────────────────────
-  const filteredRows = useMemo(() => {
-    if (statusFilter === 'all') return allRows
-    if (statusFilter === 'unreviewed') return allRows.filter(r => !r.link)
-    return allRows.filter(r => (r.link?.status ?? 'unreviewed') === statusFilter)
-  }, [allRows, statusFilter])
-
-  const pagedRows = filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-  const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE)
-
-  // ── Status counts ─────────────────────────────────────────────────────────
-  const counts = useMemo(() => {
-    const c = { all: allRows.length, unreviewed: 0, pending: 0, matched: 0, no_match: 0, new: 0, excluded: 0, merged: 0 }
-    for (const r of allRows) {
-      const s = r.link?.status ?? 'unreviewed'
-      c[s] = (c[s] || 0) + 1
-    }
-    return c
-  }, [allRows])
-
-  // ── File upload / parse ───────────────────────────────────────────────────
-  const handleFile = (e) => {
-    const file = e.target.files?.[0]
+  const loadFile = (e) => {
+    const file = e.target.files[0]
     if (!file) return
-    e.target.value = ''
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const text = ev.target.result
-        const sourceType = detectSourceType(text)
-        if (sourceType === 'unknown') {
-          setMsg({ text: 'Formato no reconocido. Soportados: Mint, Personal Capital/Empower, IBKR Activity Statement, Betterment.', error: true })
-          return
-        }
-        const { rows, stats } = parseStaging(text, sourceType)
-        const defaultName = file.name.replace(/\.csv$/i, '') +
-          (sourceType === 'mint' ? ' (Mint)' : sourceType === 'personal_capital' ? ' (Personal Capital)' : sourceType === 'ibkr' ? ' (IBKR)' : ' (Betterment)')
-        const filterMsg = stats.filtered > 0 ? `, ${stats.filtered} pre-2020 omitidas` : ''
-        const dateMsg   = stats.dateFrom ? ` · ${stats.dateFrom} → ${stats.dateTo}` : ''
-        setPendingImport({ rows, sourceType, fileName: file.name, stats })
-        setImportName(defaultName)
-        setMsg({ text: `Parseado: ${stats.kept.toLocaleString()} filas (total en archivo: ${stats.total.toLocaleString()}${filterMsg})${dateMsg}. Ingresá un nombre y confirmá.` })
-      } catch (err) {
-        setMsg({ text: err.message, error: true })
-      }
+    reader.onload = ev => {
+      const doc = new DOMParser().parseFromString(ev.target.result, 'text/html')
+      const trs = doc.querySelectorAll('#tbl tbody tr')
+      const parsed = []
+      trs.forEach((tr, i) => {
+        const tds = tr.querySelectorAll('td')
+        if (tds.length < 10) return
+        const nameEl = tds[2].querySelector('a')
+        const name = nameEl ? nameEl.textContent.trim() : tds[2].textContent.trim()
+        const link = nameEl ? nameEl.href : ''
+        const detail = tds[3].textContent.trim()
+        const dateStr = tds[4].textContent.trim()
+        const statusEl = tds[5].querySelector('span')
+        const isOk = statusEl ? statusEl.classList.contains('ok') : false
+        const status = statusEl ? statusEl.textContent.trim() : tds[5].textContent.trim()
+        const seller = tds[6].textContent.trim()
+        const ars = parseMLARS(tds[7].textContent.trim())
+        const mlaId = (tds[10] ? tds[10].textContent.trim() : '').replace('MLA-', '')
+        const date = parseMLDate(dateStr)
+        parsed.push({ idx: i, included: isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, cat: '' })
+      })
+      setRows(parsed)
+      setMsg({ type: 'ok', text: `${parsed.length} compras cargadas · ${parsed.filter(r => r.isOk).length} entregadas seleccionadas` })
     }
-    reader.readAsText(file, 'utf-8')
+    reader.readAsText(file, 'UTF-8')
   }
 
-  const confirmImport = async () => {
-    if (!pendingImport || !importName.trim()) return
+  const toggle = (idx) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, included: !r.included } : r))
+  const setCat = (idx, cat) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, cat } : r))
+  const toggleAll = (v) => setRows(prev => prev.map(r => ({ ...r, included: v })))
+
+  const visible = rows.filter(r => {
+    const q = search.toLowerCase()
+    return !q || r.name.toLowerCase().includes(q) || r.seller.toLowerCase().includes(q)
+  })
+
+  const selected = rows.filter(r => r.included)
+  const uncat = selected.filter(r => !r.cat).length
+
+  const doImport = async () => {
+    const toSend = selected.filter(r => r.date)
+    if (!toSend.length) { setMsg({ type: 'err', text: 'Nada seleccionado o sin fecha.' }); return }
+    if (uncat) { setMsg({ type: 'err', text: `${uncat} transacciones sin categoría. Asigná antes de importar.` }); return }
     setImporting(true)
-    setMsg({ text: 'Importando…' })
     try {
-      const { source } = await importStagingSource({
-        name: importName.trim(),
-        sourceType: pendingImport.sourceType,
-        rows: pendingImport.rows,
-      })
-      const updated = await loadStagingSources()
-      setSources(updated)
-      setPendingImport(null)
-      setImportName('')
-      setActiveSrcId(source.id)
-      const s = pendingImport.stats
-      const filterNote = s?.filtered > 0 ? ` (${s.filtered} pre-2020 omitidas)` : ''
-      const dateNote   = s?.dateFrom ? ` · ${s.dateFrom} → ${s.dateTo}` : ''
-      setMsg({ text: `✓ Importadas ${pendingImport.rows.length.toLocaleString()} filas${filterNote}${dateNote}. Ejecutá el auto-match para sugerir correspondencias.` })
+      const txObjs = toSend.map(r => ({
+        id: `ml_${r.mlaId}_${(r.date||'').replace(/-/g,'')}`,
+        date: r.date,
+        merchant: r.name.slice(0, 200),
+        raw_desc: `ML: ${r.seller}${r.detail ? ' · ' + r.detail : ''}`,
+        bank: 'Santander',
+        cat: r.cat || null,
+        ars: r.ars != null ? -Math.abs(r.ars) : null,
+        usd: null,
+        xfer: false,
+        ai_assigned: false,
+      }))
+      const { skipped } = await upsertTransactions(txObjs)
+      onImport(txObjs)
+      setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
+      // mark imported rows as not included so they're visually done
+      const importedIds = new Set(toSend.map(r => r.idx))
+      setRows(prev => prev.map(r => importedIds.has(r.idx) ? { ...r, included: false } : r))
     } catch (err) {
-      setMsg({ text: err.message, error: true })
+      setMsg({ type: 'err', text: `Error: ${err.message}` })
     } finally {
       setImporting(false)
     }
   }
 
-  // ── Auto-match ────────────────────────────────────────────────────────────
-  const runAutoMatch = async () => {
-    if (!activeSrcId || !allRows.length) return
-    setMatching(true)
-    setMsg({ text: `Calculando correspondencias para ${allRows.length} filas…` })
-    try {
-      const matches = autoMatch(allRows, txs)
-      await saveAutoMatches(matches)
-      // Reload rows to get updated links
-      const refreshed = await loadAllStagingRows(activeSrcId)
-      setAllRows(refreshed)
-      setMsg({ text: `✓ Auto-match completo: ${matches.length} filas con candidato.` })
-    } catch (err) {
-      setMsg({ text: err.message, error: true })
-    } finally {
-      setMatching(false)
-    }
-  }
-
-  // ── Bulk confirm high-confidence ──────────────────────────────────────────
-  const runBulkConfirm = async () => {
-    if (!activeSrcId) return
-    setMsg({ text: 'Confirmando matches con ≥80% confianza…' })
-    try {
-      const n = await bulkConfirmHighConfidence(activeSrcId, 0.80)
-      const refreshed = await loadAllStagingRows(activeSrcId)
-      setAllRows(refreshed)
-      setMsg({ text: `✓ ${n} filas confirmadas como "matched".` })
-    } catch (err) {
-      setMsg({ text: err.message, error: true })
-    }
-  }
-
-  // ── Merge 'new' rows into transactions ───────────────────────────────────
-  const runMerge = async () => {
-    const newRows = allRows.filter(r => r.link?.status === 'new')
-    if (!newRows.length) return
-    const src = sources.find(s => s.id === activeSrcId)
-    if (!confirm(`¿Insertar ${newRows.length} transacciones en el DB principal?`)) return
-    setMerging(true)
-    setMsg({ text: `Insertando ${newRows.length} transacciones…` })
-    try {
-      const n = await mergeStagingNew(newRows, src?.source_type ?? 'unknown', blueRates)
-      const refreshed = await loadAllStagingRows(activeSrcId)
-      setAllRows(refreshed)
-      setMsg({ text: `✓ ${n} transacciones insertadas. Recargá la página para verlas en Transacciones.` })
-    } catch (err) {
-      setMsg({ text: err.message, error: true })
-    } finally {
-      setMerging(false)
-    }
-  }
-
-  // ── Per-row decision ──────────────────────────────────────────────────────
-  const decide = async (stagingId, status, mainId = null) => {
-    try {
-      await saveDecision(stagingId, { mainId, status })
-      setAllRows(prev => prev.map(r =>
-        r.id === stagingId
-          ? { ...r, link: { ...(r.link ?? {}), staging_id: stagingId, status, main_id: mainId, auto_match: false, decided_at: new Date().toISOString() } }
-          : r
-      ))
-      setPickingMatchFor(null)
-    } catch (err) {
-      setMsg({ text: err.message, error: true })
-    }
-  }
-
-  const deleteSource = async (srcId) => {
-    if (!confirm('¿Eliminar esta fuente y todas sus filas?')) return
-    try {
-      await deleteStagingSource(srcId)
-      setSources(s => s.filter(x => x.id !== srcId))
-      if (activeSrcId === srcId) { setActiveSrcId(null); setAllRows([]) }
-    } catch (err) {
-      setMsg({ text: err.message, error: true })
-    }
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  const SOURCE_TYPE_LABEL = { mint: 'Mint', personal_capital: 'Personal Capital', betterment: 'Betterment', ibkr: 'IBKR' }
+  const msgColors = { ok: { bg: dark ? '#1a3a2e' : '#d4edda', color: dark ? '#6fcf97' : '#155724' }, err: { bg: dark ? '#3a1a1a' : '#f8d7da', color: dark ? '#e05252' : '#721c24' } }
+  const muted = dark ? '#8a8aaa' : '#888'
 
   return (
-    <div>
-      {/* Message banner */}
-      {msg && (
-        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 8, fontSize: 13,
-          background: msg.error ? (dark ? '#3a1010' : '#fee2e2') : (dark ? '#0f2a1a' : '#d1fae5'),
-          color: msg.error ? (dark ? '#e05252' : '#991b1b') : (dark ? '#52e09a' : '#065f46'),
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{msg.text}</span>
-          <button onClick={() => setMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'inherit', marginLeft: 12 }}>×</button>
-        </div>
-      )}
-
-      {/* Source list */}
-      <div style={{ ...S.card, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0, fontSize: 15 }}>🔍 Fuentes forenses</h3>
-          <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#fff',
-            background: '#1a1a2e', border: 'none', borderRadius: 6, display: 'inline-block' }}>
-            + Importar CSV
-            <input type="file" accept=".csv" ref={fileRef} onChange={handleFile} style={{ display: 'none' }} />
-          </label>
-        </div>
-
-        {/* Pending import confirmation */}
-        {pendingImport && (
-          <div style={{ padding: '12px 14px', background: dark ? '#1a2a3a' : '#eff6ff', borderRadius: 8, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: dark ? '#74b9ff' : '#1e40af', fontWeight: 600 }}>
-              {pendingImport.rows.length} filas listas para importar
-            </span>
-            <input style={{ ...S.input, flex: 1, minWidth: 200 }}
-              placeholder="Nombre de la fuente…" value={importName}
-              onChange={e => setImportName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && confirmImport()} />
-            <button style={S.btn('primary')} onClick={confirmImport} disabled={importing || !importName.trim()}>
-              {importing ? 'Importando…' : '✓ Confirmar'}
-            </button>
-            <button style={S.btnSm()} onClick={() => { setPendingImport(null); setImportName(''); setMsg(null) }}>Cancelar</button>
-          </div>
-        )}
-
-        {sources.length === 0 && !pendingImport && (
-          <p style={{ color: muted, fontSize: 13, margin: 0 }}>
-            No hay fuentes importadas. Subí un CSV de Mint o Personal Capital para empezar.
-          </p>
-        )}
-
-        {sources.map(src => {
-          const active = src.id === activeSrcId
-          return (
-            <div key={src.id} onClick={() => setActiveSrcId(src.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                borderRadius: 8, marginBottom: 6, cursor: 'pointer',
-                background: active ? (dark ? '#1a2a3a' : '#eff6ff') : subBg,
-                border: `1px solid ${active ? (dark ? '#2a5a8a' : '#bfdbfe') : inputBdr}` }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, color: text }}>{src.name}</div>
-                <div style={{ fontSize: 11, color: muted }}>
-                  {SOURCE_TYPE_LABEL[src.source_type] ?? src.source_type} · {src.row_count?.toLocaleString()} filas · {src.date_from} → {src.date_to}
-                </div>
-                {(() => {
-                  const st = active ? counts : (sourceStats[src.id] ?? null)
-                  if (!st) return null
-                  const pills = [
-                    { key: 'matched',  label: '✓', color: '#27ae60' },
-                    { key: 'new',      label: '+',  color: '#3498db' },
-                    { key: 'merged',   label: '↑',  color: '#8e44ad' },
-                    { key: 'pending',  label: '⏳', color: '#e67e22' },
-                    { key: 'no_match', label: '✗',  color: '#e74c3c' },
-                    { key: 'excluded', label: '—',  color: '#aaa'    },
-                  ].filter(p => (st[p.key] ?? 0) > 0)
-                  if (!pills.length) return null
-                  return (
-                    <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                      {pills.map(p => (
-                        <span key={p.key} style={{ fontSize: 10, fontWeight: 700,
-                          padding: '1px 5px', borderRadius: 6,
-                          background: p.color + '22', color: p.color }}>
-                          {p.label} {st[p.key]}
-                        </span>
-                      ))}
-                      {(st.unreviewed ?? 0) > 0 && (
-                        <span style={{ fontSize: 10, color: muted }}>
-                          {st.unreviewed} sin revisar
-                        </span>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-              <button style={S.btnSm('danger')} onClick={e => { e.stopPropagation(); deleteSource(src.id) }}>✕</button>
-            </div>
-          )
-        })}
+    <div style={S.card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>📦 Importar MercadoLibre</h3>
+        <input ref={fileRef} type="file" accept=".html,.htm" onChange={loadFile} style={{ fontSize: 12 }} />
       </div>
 
-      {/* IBKR P&L summary */}
-      {activeSrcId && sources.find(s => s.id === activeSrcId)?.source_type === 'ibkr' && allRows.length > 0 && (() => {
-        const deposited  = allRows.filter(r => r.category === 'Transfer' && r.amount < 0).reduce((s, r) => s + Math.abs(r.amount), 0)
-        const withdrawn  = allRows.filter(r => r.category === 'Transfer' && r.amount > 0).reduce((s, r) => s + r.amount, 0)
-        const dividends  = allRows.filter(r => r.category === 'Dividend').reduce((s, r) => s + r.amount, 0)
-        const interest   = allRows.filter(r => r.category === 'Interest').reduce((s, r) => s + r.amount, 0)
-        const taxes      = allRows.filter(r => r.category === 'Tax').reduce((s, r) => s + Math.abs(r.amount), 0)
-        const netCash    = withdrawn + dividends + interest - taxes - deposited
-        const statColor  = v => v >= 0 ? '#27ae60' : (dark ? '#e05252' : '#c0392b')
-        return (
-          <div style={{ ...S.card, marginBottom: 12, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: muted, letterSpacing: 1, alignSelf: 'center' }}>IBKR P&amp;L</div>
-            {[
-              { label: 'Depositado',  value: -deposited,  note: 'salidas a IBKR' },
-              { label: 'Retirado',    value: withdrawn,   note: 'ingresos de IBKR' },
-              { label: 'Dividendos',  value: dividends,   note: null },
-              { label: 'Intereses',   value: interest,    note: null },
-              { label: 'Impuestos',   value: -taxes,      note: null },
-              { label: 'Net cash',    value: netCash,     note: 'retirado − depositado + dividendos + intereses − impuestos', bold: true },
-            ].map(({ label, value, note, bold }) => (
-              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <div style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-                <div style={{ fontSize: bold ? 16 : 14, fontWeight: bold ? 700 : 500, color: statColor(value) }}>
-                  {value >= 0 ? '+' : '−'}{fmtUSD(Math.abs(value))}
-                </div>
-                {note && <div style={{ fontSize: 10, color: muted }}>{note}</div>}
-              </div>
-            ))}
-          </div>
-        )
-      })()}
-
-      {/* Review panel */}
-      {activeSrcId && (
-        <div style={S.card}>
-          {/* Toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <h3 style={{ margin: 0, fontSize: 14, color: muted }}>
-              {sources.find(s => s.id === activeSrcId)?.name}
-            </h3>
-            <span style={{ flex: 1 }} />
-            <button style={{ ...S.btn('secondary'), fontSize: 12 }}
-              onClick={runAutoMatch} disabled={matching || !allRows.length}>
-              {matching ? '⏳ Calculando…' : '🔗 Auto-match'}
-            </button>
-            <button style={{ ...S.btn('secondary'), fontSize: 12 }}
-              onClick={runBulkConfirm} disabled={counts.pending === 0}>
-              ✓ Confirmar ≥80% ({counts.pending} pendientes)
-            </button>
-            {counts.new > 0 && (
-              <button style={{ ...S.btn('primary'), fontSize: 12 }}
-                onClick={runMerge} disabled={merging}>
-                {merging ? '⏳ Insertando…' : `↑ Merge ${counts.new} nuevas`}
-              </button>
-            )}
-          </div>
-
-          {/* Status filter tabs */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-            {[
-              ['all',        `Todas (${counts.all})`],
-              ['unreviewed', `Sin revisar (${counts.unreviewed})`],
-              ['pending',    `Pendiente (${counts.pending})`],
-              ['matched',    `✓ Match (${counts.matched})`],
-              ['no_match',   `✗ No match (${counts.no_match})`],
-              ['new',        `+ Nuevo (${counts.new})`],
-              ['excluded',   `Excluir (${counts.excluded})`],
-              ['merged',     `↑ Merged (${counts.merged ?? 0})`],
-            ].map(([key, label]) => (
-              <button key={key}
-                style={{ ...S.btnSm(statusFilter === key ? 'active' : 'ghost'), fontSize: 12 }}
-                onClick={() => { setStatusFilter(key); setPage(0) }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Row count */}
-          <div style={{ fontSize: 12, color: muted, marginBottom: 10 }}>
-            {filteredRows.length} filas · página {page + 1}/{totalPages || 1}
-          </div>
-
-          {/* Review rows */}
-          {pagedRows.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 32, color: muted }}>
-              {allRows.length === 0 ? 'Cargando…' : 'Sin filas en este filtro.'}
-            </div>
-          )}
-
-          {pagedRows.map(row => {
-            const link    = row.link
-            const status  = link?.status ?? 'unreviewed'
-            const matchedTx = link?.main_id ? txIndex[link.main_id] : null
-            const sl = STATUS_LABELS[status] ?? STATUS_LABELS.unreviewed
-
-            return (
-              <div key={row.id} style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', gap: 8, padding: '10px 12px',
-                borderRadius: pickingMatchFor === row.id ? '8px 8px 0 0' : 8,
-                border: `1px solid ${inputBdr}`,
-                borderBottom: pickingMatchFor === row.id ? 'none' : undefined,
-                background: status === 'matched' ? (dark ? '#0f2a1a' : '#f0fdf4')
-                  : status === 'excluded'        ? (dark ? '#1a1a1a' : '#fafafa')
-                  : status === 'new'             ? (dark ? '#0f1a2a' : '#eff6ff')
-                  : subBg }}>
-
-                {/* Status pill */}
-                <div style={{ width: 80, flexShrink: 0, paddingTop: 2 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
-                    background: sl.color + '22', color: sl.color }}>
-                    {sl.label}
-                  </span>
-                  {link?.confidence != null && (
-                    <div style={{ marginTop: 4 }}>
-                      <ConfidenceBar value={link.confidence} />
-                    </div>
-                  )}
-                </div>
-
-                {/* Source (Mint) panel */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, color: muted, marginBottom: 2 }}>
-                    {row.date} · <span style={{ fontStyle: 'italic' }}>{row.account}</span>
-                  </div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {row.description || '—'}
-                  </div>
-                  {row.orig_description && row.orig_description !== row.description && (
-                    <div style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      orig: {row.orig_description}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, marginTop: 2, color: row.amount < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 500 }}>
-                    {row.amount < 0 ? '−' : '+'}{fmtUSD(Math.abs(row.amount))}
-                    {row.category && <span style={{ fontWeight: 400, color: muted, marginLeft: 6 }}>{row.category}</span>}
-                  </div>
-                </div>
-
-                {/* Arrow */}
-                <div style={{ display: 'flex', alignItems: 'center', color: muted, fontSize: 18, flexShrink: 0 }}>↔</div>
-
-                {/* Matched main tx panel */}
-                <div style={{ flex: 1, minWidth: 0, borderLeft: `1px solid ${inputBdr}`, paddingLeft: 10 }}>
-                  {matchedTx ? (<>
-                    <div style={{ fontSize: 11, color: muted, marginBottom: 2 }}>
-                      {matchedTx.date} · <span style={{ padding: '1px 5px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-                        ...((BANK_STYLE[matchedTx.bank]) ?? { background: '#eee', color: '#555' }) }}>
-                        {matchedTx.bank}
-                      </span>
-                    </div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {matchedTx.merchant || matchedTx.raw_desc || '—'}
-                    </div>
-                    {matchedTx.merchant && matchedTx.raw_desc && (
-                      <div style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {matchedTx.raw_desc}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 12, marginTop: 2, color: (matchedTx.usd ?? 0) < 0 ? (dark ? '#e05252' : '#c0392b') : '#27ae60', fontWeight: 500 }}>
-                      {fmtUSD(matchedTx.usd)}
-                      {matchedTx.cat && <span style={{ ...badge(matchedTx.cat), marginLeft: 6 }}>{matchedTx.cat}</span>}
-                    </div>
-                  </>) : (
-                    <div style={{ color: muted, fontSize: 12, paddingTop: 6 }}>
-                      {link?.status === 'new'      ? '📥 Marcar como nueva transacción' :
-                       link?.status === 'excluded' ? '—' :
-                       '(sin correspondencia sugerida)'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Decision buttons */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, justifyContent: 'center' }}>
-                  <button title="Match — corresponde a la tx del DB"
-                    style={{ ...S.btnSm(status === 'matched' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => link?.main_id
-                      ? decide(row.id, 'matched', link.main_id)
-                      : setPickingMatchFor(pickingMatchFor === row.id ? null : row.id)}>
-                    ✓ Match
-                  </button>
-                  <button title="Elegir manualmente la tx correspondiente"
-                    style={{ ...S.btnSm(pickingMatchFor === row.id ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => setPickingMatchFor(pickingMatchFor === row.id ? null : row.id)}>
-                    🔍 Pick
-                  </button>
-                  <button title="No hay correspondencia en el DB"
-                    style={{ ...S.btnSm(status === 'no_match' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => decide(row.id, 'no_match')}>
-                    ✗ No match
-                  </button>
-                  <button title="Transacción nueva no presente en el DB"
-                    style={{ ...S.btnSm(status === 'new' ? 'active' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => decide(row.id, 'new')}>
-                    + Nuevo
-                  </button>
-                  <button title="Ignorar (ruido, duplicado, no relevante)"
-                    style={{ ...S.btnSm(status === 'excluded' ? 'danger' : 'ghost'), fontSize: 11, whiteSpace: 'nowrap' }}
-                    onClick={() => decide(row.id, 'excluded')}>
-                    — Excluir
-                  </button>
-                </div>
-              </div>
-              {pickingMatchFor === row.id && (
-                <MatchPicker
-                  stagingRow={row}
-                  txs={txs}
-                  onSelect={tx => decide(row.id, 'matched', tx.id)}
-                  onClose={() => setPickingMatchFor(null)}
-                />
-              )}
-              </div>
-            )
-          })}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-              <button style={S.btnSm()} disabled={page === 0} onClick={() => setPage(0)}>«</button>
-              <button style={S.btnSm()} disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹</button>
-              <span style={{ fontSize: 13, color: muted, padding: '3px 10px' }}>
-                {page + 1} / {totalPages}
-              </span>
-              <button style={S.btnSm()} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>›</button>
-              <button style={S.btnSm()} disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>»</button>
-            </div>
-          )}
+      {msg && (
+        <div style={{ padding: '7px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12, ...msgColors[msg.type] }}>
+          {msg.text}
         </div>
       )}
+
+      {rows.length > 0 && (<>
+        {/* Stats + controls */}
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13 }}><b>{selected.length}</b> seleccionadas</span>
+          {uncat > 0 && <span style={{ fontSize: 12, color: '#f5a623', fontWeight: 600 }}>⚠ {uncat} sin categoría</span>}
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto o vendedor…"
+            style={{ ...S.input, fontSize: 12, width: 220 }} />
+          <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={() => toggleAll(true)}>☑ Todos</button>
+          <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={() => toggleAll(false)}>☐ Ninguno</button>
+          <button style={{ ...S.btn('primary'), padding: '5px 16px', fontSize: 12, marginLeft: 'auto', opacity: importing ? .6 : 1 }}
+            disabled={importing} onClick={doImport}>
+            {importing ? 'Importando…' : `⬆ Importar ${selected.filter(r => r.date).length}`}
+          </button>
+        </div>
+
+        {/* Table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ ...S.table, fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ ...S.th, width: 28 }}><input type="checkbox" onChange={e => toggleAll(e.target.checked)} /></th>
+                <th style={S.th}>Producto</th>
+                <th style={S.th}>Vendedor</th>
+                <th style={{ ...S.th, whiteSpace: 'nowrap' }}>Fecha</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>ARS $</th>
+                <th style={S.th}>Categoría</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r, i) => (
+                <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.35, background: r.included ? undefined : 'transparent' }}>
+                  <td style={{ ...S.td, width: 28, textAlign: 'center' }}>
+                    <input type="checkbox" checked={r.included} onChange={() => toggle(r.idx)} />
+                  </td>
+                  <td style={{ ...S.td, maxWidth: 300 }}>
+                    <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 290 }} title={r.name}>
+                      {r.link ? <a href={r.link} target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>{r.name}</a> : r.name}
+                    </div>
+                    {r.detail && <div style={{ fontSize: 10, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 290 }}>{r.detail}</div>}
+                  </td>
+                  <td style={{ ...S.td, maxWidth: 140, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, color: muted }}>{r.seller}</td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', fontSize: 11, color: muted }}>{r.dateStr}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>
+                    {r.ars != null ? `$ ${r.ars.toLocaleString('es-AR')}` : '—'}
+                  </td>
+                  <td style={S.td}>
+                    <select value={r.cat} onChange={e => setCat(r.idx, e.target.value)}
+                      style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, border: `1px solid ${r.cat ? '#5555aa' : (dark ? '#555' : '#ddd')}`,
+                        background: r.cat ? (dark ? '#1a1a3e' : '#eef') : (dark ? '#12121f' : '#fff'),
+                        color: dark ? '#e0e0e0' : '#1a1a2e', cursor: 'pointer' }}>
+                      <option value="">— categoría —</option>
+                      {ML_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>)}
     </div>
   )
+}
 }
