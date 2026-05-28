@@ -1500,6 +1500,15 @@ function parseMLARS(s) {
 }
 
 const ML_STORAGE_KEY = 'ml_import_rows'
+const ML_DONE_KEY = 'ml_imported_ids'   // set of transaction IDs already sent to DB
+
+function loadDoneSet() {
+  try { const s = localStorage.getItem(ML_DONE_KEY); return new Set(s ? JSON.parse(s) : []) }
+  catch { return new Set() }
+}
+function saveDoneSet(set) {
+  try { localStorage.setItem(ML_DONE_KEY, JSON.stringify([...set])) } catch {}
+}
 
 function MLImportTab({ onImport }) {
   const dark = useTheme()
@@ -1532,7 +1541,8 @@ function MLImportTab({ onImport }) {
         try { const s = localStorage.getItem(ML_STORAGE_KEY); return s ? JSON.parse(s) : [] }
         catch { return [] }
       })()
-      const storedByMlaId = Object.fromEntries(stored.map(r => [r.mlaId, r]))
+      const storedByIdx = Object.fromEntries(stored.map(r => [r.idx, r]))
+      const doneSet = loadDoneSet()
       const parsed = []
       trs.forEach((tr, i) => {
         const tds = tr.querySelectorAll('td')
@@ -1551,11 +1561,13 @@ function MLImportTab({ onImport }) {
         const ars = parseMLARS(tds[7].textContent.trim())
         const mlaId = (tds[10] ? tds[10].textContent.trim() : '').replace('MLA-', '')
         const date = parseMLDate(dateStr)
-        const prev = storedByMlaId[mlaId]
+        const txId = `ml_${mlaId || i}_${(date||'').replace(/-/g,'')}_${i}`
+        if (doneSet.has(txId)) return   // already imported — skip
+        const prev = storedByIdx[i]
         parsed.push({ idx: i, included: prev ? prev.included : isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, img, cat: prev ? prev.cat : '' })
       })
       setRows(parsed)
-      setMsg({ type: 'ok', text: `${parsed.length} compras cargadas · ${parsed.filter(r => r.cat).length} ya categorizadas` })
+      setMsg({ type: 'ok', text: `${parsed.length} compras pendientes · ${parsed.filter(r => r.cat).length} ya categorizadas` })
     }
     reader.readAsText(file, 'UTF-8')
   }
@@ -1570,6 +1582,7 @@ function MLImportTab({ onImport }) {
   }
   const clearStorage = () => {
     localStorage.removeItem(ML_STORAGE_KEY)
+    localStorage.removeItem(ML_DONE_KEY)
     setRows([])
     setMsg({ type: 'ok', text: 'Progreso borrado.' })
   }
@@ -1604,7 +1617,11 @@ function MLImportTab({ onImport }) {
       const { skipped } = await upsertTransactions(txObjs)
       onImport(txObjs)
       setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
-      // Remove imported rows entirely — they live in the main DB now
+      // Remember these IDs so they're skipped even if the HTML is reloaded
+      const doneSet = loadDoneSet()
+      txObjs.forEach(t => doneSet.add(t.id))
+      saveDoneSet(doneSet)
+      // Remove imported rows from the tab — they live in the main DB now
       const importedIdxs = new Set(toSend.map(r => r.idx))
       setRows(prev => prev.filter(r => !importedIdxs.has(r.idx)))
     } catch (err) {
