@@ -12,6 +12,7 @@ import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadCatLog, loadBlueRates,
   loadDeletedTransactions, restoreTransaction,
+  loadUpworkStaging, updateUpworkStagingCat, importUpworkRows,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
 
@@ -506,6 +507,7 @@ export default function Finanzas({ session, onLogout }) {
     { id: 'auditoria', label: 'Historial IA' },
     { id: 'ml', label: '📦 ML Import' },
     { id: 'duplicados', label: '🔁 Duplicados' },
+    { id: 'upwork', label: '🧑‍💻 Upwork' },
     { id: 'papelera', label: '🗑 Papelera' },
     { id: 'settings', label: '⚙ Config' },
   ]
@@ -535,7 +537,7 @@ export default function Finanzas({ session, onLogout }) {
       )}
 
       <div style={S.content}>
-        {!['auditoria', 'settings', 'ml', 'duplicados', 'papelera'].includes(activeTab) && (
+        {!['auditoria', 'settings', 'ml', 'duplicados', 'upwork', 'papelera'].includes(activeTab) && (
           <div style={S.filterBar}>
             <div style={S.filterGroup}>
               <span style={S.filterLabel}>Período</span>
@@ -583,7 +585,7 @@ export default function Finanzas({ session, onLogout }) {
           </div>
         )}
 
-        {filterActive && !['auditoria', 'settings', 'ml', 'duplicados', 'papelera'].includes(activeTab) && (
+        {filterActive && !['auditoria', 'settings', 'ml', 'duplicados', 'upwork', 'papelera'].includes(activeTab) && (
           <div style={{
             background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
             marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
@@ -630,6 +632,7 @@ export default function Finanzas({ session, onLogout }) {
         {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
         {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
         {activeTab === 'duplicados' && <DuplicadosTab txs={txs} onDelete={bulkDeleteTxs} />}
+        {activeTab === 'upwork' && <UpworkStagingTab onImport={imported => setTxs(prev => [...imported, ...prev.filter(t => !imported.find(i => i.id === t.id))])} />}
         {activeTab === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
         {activeTab === 'settings' && <SettingsTab
           settings={settings}
@@ -1497,6 +1500,209 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
           Las 1.584 transacciones sin ARS (bancos en USD) mantienen sus valores USD originales.
           Al importar XLSX, la tasa también se asigna por fecha automáticamente.
         </p>
+      </div>
+    </div>
+  )
+}
+
+// ─── Upwork Staging ──────────────────────────────────────────────────────────
+
+function UpworkStagingTab({ onImport }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const muted = dark ? '#8a8aaa' : '#888'
+  const green = dark ? '#4ade80' : '#16a34a'
+  const red   = dark ? '#f87171' : '#dc2626'
+
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')   // 'all' | 'uncat' | 'sel'
+  const [importing, setImporting] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    setLoading(true)
+    loadUpworkStaging()
+      .then(data => { setRows(data); setLoading(false) })
+      .catch(e => { setErr(e.message); setLoading(false) })
+  }, [])
+
+  const setCat = async (id, cat) => {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, cat } : r))
+    try { await updateUpworkStagingCat(id, cat) } catch (e) { setMsg({ error: true, text: 'Error saving: ' + e.message }) }
+  }
+
+  // Filtered + searched rows
+  const visible = useMemo(() => {
+    let out = rows
+    if (search) {
+      const q = search.toLowerCase()
+      out = out.filter(r =>
+        (r.contract_name || '').toLowerCase().includes(q) ||
+        (r.contractor || '').toLowerCase().includes(q) ||
+        (r.cat || '').toLowerCase().includes(q) ||
+        (r.method || '').toLowerCase().includes(q)
+      )
+    }
+    if (filter === 'uncat') out = out.filter(r => !r.cat)
+    if (filter === 'sel')   out = out.filter(r => selected.has(r.id))
+    return out
+  }, [rows, search, filter, selected])
+
+  const toggleRow = id => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  const allVisibleSelected = visible.length > 0 && visible.every(r => selected.has(r.id))
+  const toggleAll = () => {
+    if (allVisibleSelected) setSelected(prev => { const s = new Set(prev); visible.forEach(r => s.delete(r.id)); return s })
+    else setSelected(prev => { const s = new Set(prev); visible.forEach(r => s.add(r.id)); return s })
+  }
+
+  const selectedRows = rows.filter(r => selected.has(r.id))
+  const selectedTotal = selectedRows.reduce((s, r) => s + parseFloat(r.usd || 0), 0)
+  const selectedUncat = selectedRows.filter(r => !r.cat).length
+  const uncatTotal = rows.filter(r => !r.cat).length
+
+  const doImport = async () => {
+    if (selectedUncat > 0) { setMsg({ error: true, text: `${selectedUncat} selected rows have no category. Assign categories before importing.` }); return }
+    setImporting(true)
+    setMsg(null)
+    try {
+      const { imported } = await importUpworkRows(selectedRows)
+      setMsg({ error: false, text: `✓ Imported ${imported} transactions to main DB.` })
+      setSelected(new Set())
+      if (onImport) {
+        // Build lightweight objects for the parent state update
+        const txObjs = selectedRows.map(r => ({
+          id: r.id, date: r.date, cat: r.cat, bank: 'Upwork',
+          usd: parseFloat(r.usd),
+          raw_desc: [r.contract_name, r.contractor].filter(Boolean).join(' — '),
+          merchant: r.contractor || null,
+          notes: [r.tx_type, r.method].filter(Boolean).join(' / '),
+          referencia: r.id.replace('upwork_', ''),
+          deleted_at: null, needs_review: false, xfer: false,
+        }))
+        onImport(txObjs)
+      }
+    } catch (e) {
+      setMsg({ error: true, text: 'Import error: ' + e.message })
+    }
+    setImporting(false)
+  }
+
+  if (loading) return <div style={{ padding: 32, color: muted }}>Cargando staging de Upwork…</div>
+  if (err)     return <div style={{ padding: 32, color: red }}>Error: {err}</div>
+
+  const btnBase = { padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+
+  return (
+    <div style={{ padding: '16px 20px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>🧑‍💻 Upwork Staging</h2>
+        <span style={{ fontSize: 13, color: muted }}>{rows.length} transacciones · {uncatTotal} sin categoría</span>
+        <div style={{ flex: 1 }} />
+        {msg && (
+          <span style={{ fontSize: 13, color: msg.error ? red : green, padding: '4px 10px', borderRadius: 6,
+            background: msg.error ? (dark ? '#3b0f0f' : '#fee2e2') : (dark ? '#0a2e1a' : '#dcfce7') }}>
+            {msg.text} <button onClick={() => setMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>×</button>
+          </span>
+        )}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar contrato / contractor / categoría…"
+          style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${dark ? '#2a2a3e' : '#ddd'}`,
+            background: dark ? '#12121f' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e', fontSize: 13, minWidth: 240 }}
+        />
+        {['all', 'uncat', 'sel'].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...btnBase, background: filter === f ? '#5555cc' : (dark ? '#1a1a2e' : '#eee'),
+              color: filter === f ? '#fff' : (dark ? '#ccc' : '#444') }}>
+            {f === 'all' ? `Todos (${rows.length})` : f === 'uncat' ? `Sin cat. (${uncatTotal})` : `Selec. (${selected.size})`}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {selected.size > 0 && (
+          <span style={{ fontSize: 13, color: muted }}>
+            {selected.size} sel · <strong style={{ color: selectedTotal >= 0 ? green : red }}>${Math.abs(selectedTotal).toFixed(2)}</strong>
+          </span>
+        )}
+        <button
+          onClick={doImport} disabled={importing || selected.size === 0}
+          style={{ ...btnBase, background: selected.size > 0 ? '#5555cc' : (dark ? '#2a2a3e' : '#ddd'),
+            color: selected.size > 0 ? '#fff' : muted, opacity: importing ? 0.6 : 1 }}>
+          {importing ? '⏳ Importando…' : `⬆ Importar ${selected.size > 0 ? selected.size : ''} al DB`}
+        </button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ ...S.table, fontSize: 12, width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ ...S.th, width: 32 }}>
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
+              </th>
+              <th style={S.th}>Fecha</th>
+              <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+              <th style={S.th}>Tipo</th>
+              <th style={S.th}>Método</th>
+              <th style={{ ...S.th, minWidth: 200 }}>Contrato</th>
+              <th style={S.th}>Contractor</th>
+              <th style={{ ...S.th, minWidth: 180 }}>Categoría</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(r => {
+              const usd = parseFloat(r.usd || 0)
+              const isSel = selected.has(r.id)
+              return (
+                <tr key={r.id}
+                  style={{ background: isSel ? (dark ? '#1a1a40' : '#f0f0ff') : 'transparent', cursor: 'pointer' }}
+                  onClick={() => toggleRow(r.id)}>
+                  <td style={{ ...S.td, textAlign: 'center' }} onClick={e => { e.stopPropagation(); toggleRow(r.id) }}>
+                    <input type="checkbox" checked={isSel} onChange={() => toggleRow(r.id)} />
+                  </td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap', color: muted }}>{fmtDate(r.date)}</td>
+                  <td style={{ ...S.td, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap',
+                    color: usd >= 0 ? green : red }}>
+                    {usd >= 0 ? '+' : ''}${Math.abs(usd).toFixed(2)}
+                  </td>
+                  <td style={{ ...S.td, color: muted, fontSize: 11 }}>{r.tx_type}</td>
+                  <td style={{ ...S.td, color: muted, fontSize: 11, whiteSpace: 'nowrap' }}>{r.method}</td>
+                  <td style={{ ...S.td, maxWidth: 280 }}
+                    title={r.contract_name}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 275 }}>
+                      {r.contract_name || <span style={{ color: muted }}>—</span>}
+                    </div>
+                  </td>
+                  <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{r.contractor || <span style={{ color: muted }}>—</span>}</td>
+                  <td style={S.td} onClick={e => e.stopPropagation()}>
+                    <select
+                      value={r.cat || ''}
+                      onChange={e => setCat(r.id, e.target.value)}
+                      style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, minWidth: 160,
+                        border: `1px solid ${r.cat ? '#5555aa' : (dark ? '#555' : '#ddd')}`,
+                        background: r.cat ? (dark ? '#1a1a3e' : '#eef') : (dark ? '#12121f' : '#fff'),
+                        color: dark ? '#e0e0e0' : '#1a1a2e', cursor: 'pointer' }}>
+                      <option value="">— categoría —</option>
+                      {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              )
+            })}
+            {visible.length === 0 && (
+              <tr><td colSpan={8} style={{ ...S.td, textAlign: 'center', color: muted, padding: 32 }}>
+                No hay resultados
+              </td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )

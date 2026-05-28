@@ -258,6 +258,55 @@ export async function upsertBlueRates(rows) {
 }
 
 // ---------------------------------------------------------------------------
+// Upwork staging
+// ---------------------------------------------------------------------------
+
+export async function loadUpworkStaging() {
+  const { data, error } = await supabase
+    .from('upwork_staging')
+    .select('*')
+    .gte('date', '2020-01-01')
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data
+}
+
+export async function updateUpworkStagingCat(id, cat) {
+  const { error } = await supabase
+    .from('upwork_staging')
+    .update({ cat })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function importUpworkRows(rows) {
+  const { data: { user }, error: uErr } = await supabase.auth.getUser()
+  if (uErr) throw uErr
+
+  const txs = rows.map(r => ({
+    id: r.id,
+    user_id: user.id,
+    date: r.date,
+    cat: r.cat,
+    bank: 'Upwork',
+    usd: parseFloat(r.usd),
+    raw_desc: [r.contract_name, r.contractor].filter(Boolean).join(' — '),
+    merchant: r.contractor || null,
+    notes: [r.tx_type, r.method].filter(Boolean).join(' / '),
+    referencia: r.id.replace('upwork_', ''),
+    xfer: false,
+    needs_review: false,
+  }))
+
+  const { error } = await supabase
+    .from('transactions')
+    .upsert(txs, { onConflict: 'id' })
+  if (error) throw error
+
+  return { imported: txs.length }
+}
+
+// ---------------------------------------------------------------------------
 // Review queue
 // ---------------------------------------------------------------------------
 
