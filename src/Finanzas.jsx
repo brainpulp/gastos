@@ -1512,12 +1512,15 @@ function DuplicadosTab({ txs, onDelete }) {
   const S = makeS(dark)
   const muted = dark ? '#8a8aaa' : '#888'
 
-  // Build groups: same (date + ars + merchant) → potential duplicate
-  // Also flag as "certain" when all IDs share the same ML base ID
+  // Build groups: same (date + ars + identity) → potential duplicate
+  // identity = merchant if non-blank, otherwise raw_desc — avoids false positives
+  // when two unrelated transactions share a date/amount but have no description
   const groups = useMemo(() => {
     const map = {}
     for (const t of txs) {
-      const key = `${t.date}||${String(t.ars)}||${t.merchant || ''}`
+      const identity = (t.merchant || '').trim() || (t.raw_desc || '').trim()
+      if (!identity) continue   // no description at all — skip, can't verify
+      const key = `${t.date}||${String(t.ars)}||${identity}`
       if (!map[key]) map[key] = []
       map[key].push(t)
     }
