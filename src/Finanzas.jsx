@@ -1583,9 +1583,9 @@ function MLImportTab({ onImport }) {
   const uncat = selected.filter(r => !r.cat).length
 
   const doImport = async () => {
-    const toSend = selected.filter(r => r.date)
-    if (!toSend.length) { setMsg({ type: 'err', text: 'Nada seleccionado o sin fecha.' }); return }
-    if (uncat) { setMsg({ type: 'err', text: `${uncat} transacciones sin categoría. Asigná antes de importar.` }); return }
+    // Only import rows that are checked, have a date, AND have a category — skip the rest silently
+    const toSend = selected.filter(r => r.date && r.cat)
+    if (!toSend.length) { setMsg({ type: 'err', text: 'Ninguna seleccionada tiene categoría asignada.' }); return }
     setImporting(true)
     try {
       const txObjs = toSend.map(r => ({
