@@ -468,6 +468,28 @@ export default function Finanzas({ session, onLogout }) {
     }
   }
 
+  const handleExportXLSX = () => {
+    if (!filtered.length) return
+    const rows = filtered.map(t => ({
+      Fecha:       t.date ?? '',
+      Merchant:    t.merchant ?? '',
+      Descripción: t.raw_desc ?? '',
+      Categoría:   t.cat ?? '',
+      Banco:       t.bank ?? '',
+      ARS:         t.ars ?? '',
+      USD:         t.usd ?? '',
+      'USD Rate':  t.usd_rate ?? '',
+      Notas:       t.notes ?? '',
+      Referencia:  t.referencia ?? '',
+      ID:          t.id ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Transacciones')
+    const label = filterActive ? 'filtrado' : 'todas'
+    XLSX.writeFile(wb, `gastos_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   const goToMonth = (ym) => {
     if (!ym) return
     const [y, m] = ym.split('-').map(Number)
@@ -566,6 +588,14 @@ export default function Finanzas({ session, onLogout }) {
             🤖 Categorizar ({uncatFiltered.length})
           </button>
         )}
+        <button
+          style={{ padding: '5px 12px', fontSize: 13, cursor: filtered.length ? 'pointer' : 'default', color: filtered.length ? '#ccc' : '#555', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
+          onClick={handleExportXLSX}
+          disabled={!filtered.length}
+          title={`Exportar ${filtered.length} transacciones visibles a XLSX`}
+        >
+          📤 Exportar ({filtered.length})
+        </button>
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
           <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
