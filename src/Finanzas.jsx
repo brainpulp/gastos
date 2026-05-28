@@ -1519,6 +1519,8 @@ function MLImportTab({ onImport }) {
       trs.forEach((tr, i) => {
         const tds = tr.querySelectorAll('td')
         if (tds.length < 10) return
+        const imgEl = tds[1].querySelector('img')
+        const img = imgEl ? imgEl.src : ''
         const nameEl = tds[2].querySelector('a')
         const name = nameEl ? nameEl.textContent.trim() : tds[2].textContent.trim()
         const link = nameEl ? nameEl.href : ''
@@ -1531,7 +1533,7 @@ function MLImportTab({ onImport }) {
         const ars = parseMLARS(tds[7].textContent.trim())
         const mlaId = (tds[10] ? tds[10].textContent.trim() : '').replace('MLA-', '')
         const date = parseMLDate(dateStr)
-        parsed.push({ idx: i, included: isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, cat: '' })
+        parsed.push({ idx: i, included: isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, img, cat: '' })
       })
       setRows(parsed)
       setMsg({ type: 'ok', text: `${parsed.length} compras cargadas · ${parsed.filter(r => r.isOk).length} entregadas seleccionadas` })
@@ -1619,6 +1621,7 @@ function MLImportTab({ onImport }) {
             <thead>
               <tr>
                 <th style={{ ...S.th, width: 28 }}><input type="checkbox" onChange={e => toggleAll(e.target.checked)} /></th>
+                <th style={{ ...S.th, width: 58 }}>Foto</th>
                 <th style={S.th}>Producto</th>
                 <th style={S.th}>Vendedor</th>
                 <th style={{ ...S.th, whiteSpace: 'nowrap' }}>Fecha</th>
@@ -1631,6 +1634,13 @@ function MLImportTab({ onImport }) {
                 <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.35, background: r.included ? undefined : 'transparent' }}>
                   <td style={{ ...S.td, width: 28, textAlign: 'center' }}>
                     <input type="checkbox" checked={r.included} onChange={() => toggle(r.idx)} />
+                  </td>
+                  <td style={{ ...S.td, width: 58, padding: '4px 6px' }}>
+                    {r.img
+                      ? <img src={r.img} alt="" width={50} height={50}
+                          style={{ objectFit: 'cover', borderRadius: 4, display: 'block' }}
+                          onError={e => { e.target.style.display = 'none' }} />
+                      : null}
                   </td>
                   <td style={{ ...S.td, maxWidth: 300 }}>
                     <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 290 }} title={r.name}>
@@ -1660,5 +1670,4 @@ function MLImportTab({ onImport }) {
       </>)}
     </div>
   )
-}
 }
