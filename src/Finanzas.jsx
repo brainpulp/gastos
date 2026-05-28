@@ -1603,9 +1603,9 @@ function MLImportTab({ onImport }) {
       const { skipped } = await upsertTransactions(txObjs)
       onImport(txObjs)
       setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
-      // mark imported rows as not included so they're visually done
-      const importedIds = new Set(toSend.map(r => r.idx))
-      setRows(prev => prev.map(r => importedIds.has(r.idx) ? { ...r, included: false } : r))
+      // Remove imported rows entirely — they live in the main DB now
+      const importedMlaIds = new Set(toSend.map(r => r.mlaId))
+      setRows(prev => prev.filter(r => !importedMlaIds.has(r.mlaId)))
     } catch (err) {
       setMsg({ type: 'err', text: `Error: ${err.message}` })
     } finally {
