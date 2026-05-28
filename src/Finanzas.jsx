@@ -1560,8 +1560,8 @@ function MLImportTab({ onImport }) {
     reader.readAsText(file, 'UTF-8')
   }
 
-  const toggle = (idx) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, included: !r.included } : r))
-  const setCat = (idx, cat) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, cat } : r))
+  const toggle = (idx) => setRows(prev => prev.map(r => r.idx === idx ? { ...r, included: !r.included } : r))
+  const setCat = (idx, cat) => setRows(prev => prev.map(r => r.idx === idx ? { ...r, cat } : r))
   const toggleAll = (v) => setRows(prev => prev.map(r => ({ ...r, included: v })))
   const applyBulkCat = () => {
     if (!bulkCat) return
@@ -1580,7 +1580,8 @@ function MLImportTab({ onImport }) {
   })
 
   const selected = rows.filter(r => r.included)
-  const uncat = selected.filter(r => !r.cat).length
+  const readyToImport = rows.filter(r => r.cat && r.date).length
+  const pending = rows.filter(r => !r.cat).length
 
   const doImport = async () => {
     // Import all rows that have a category, regardless of checkbox state
@@ -1632,8 +1633,7 @@ function MLImportTab({ onImport }) {
       {rows.length > 0 && (<>
         {/* Stats + controls */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13 }}><b>{selected.length}</b> selec. · <b>{rows.filter(r => r.cat).length}</b>/{rows.length} categorizadas</span>
-          {uncat > 0 && <span style={{ fontSize: 12, color: '#f5a623', fontWeight: 600 }}>⚠ {uncat} sin cat</span>}
+          <span style={{ fontSize: 13 }}><b>{selected.length}</b> selec. · <b>{readyToImport}</b> listas · <span style={{ color: pending ? '#f5a623' : 'inherit' }}><b>{pending}</b> sin cat</span></span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto o vendedor…"
             style={{ ...S.input, fontSize: 12, width: 200 }} />
           <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={() => toggleAll(true)}>☑ Todos</button>
@@ -1651,7 +1651,7 @@ function MLImportTab({ onImport }) {
           </button>
           <button style={{ ...S.btn('primary'), padding: '5px 16px', fontSize: 12, marginLeft: 'auto', opacity: importing ? .6 : 1 }}
             disabled={importing} onClick={doImport}>
-            {importing ? 'Importando…' : `⬆ Importar ${selected.filter(r => r.date).length}`}
+            {importing ? 'Importando…' : `⬆ Importar ${readyToImport}`}
           </button>
           <button style={{ ...S.btnSm(), fontSize: 10, opacity: 0.5 }} onClick={clearStorage} title="Borrar progreso guardado">🗑</button>
         </div>
