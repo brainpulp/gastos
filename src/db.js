@@ -279,6 +279,14 @@ export async function updateUpworkStagingCat(id, cat) {
   if (error) throw error
 }
 
+export async function deleteUpworkStagingRows(ids) {
+  const { error } = await supabase
+    .from('upwork_staging')
+    .delete()
+    .in('id', ids)
+  if (error) throw error
+}
+
 export async function importUpworkRows(rows) {
   const { data: { user }, error: uErr } = await supabase.auth.getUser()
   if (uErr) throw uErr

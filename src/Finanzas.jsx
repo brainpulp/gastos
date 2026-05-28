@@ -12,7 +12,7 @@ import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadCatLog, loadBlueRates,
   loadDeletedTransactions, restoreTransaction,
-  loadUpworkStaging, updateUpworkStagingCat, importUpworkRows,
+  loadUpworkStaging, updateUpworkStagingCat, importUpworkRows, deleteUpworkStagingRows,
 } from './db.js'
 import { categorizeTxs } from './categorize.js'
 
@@ -30,7 +30,7 @@ export const CATS = [
   'Interbank incoming', 'Interbank outgoing', 'Legal fees', 'Loans given',
   'misc fees', 'Mocoreta', 'Must trace', 'pets',
   'Puente to Santander', 'Roca deptos', 'Shopping', 'sports and exercise',
-  'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'US taxes',
+  'Topozoids', 'transportation', 'Travel', 'Uncategorized Expenses', 'Upwork', 'US taxes',
 ]
 
 const BANKS = ['BofA', 'Cash', 'Chase', 'Citibank', 'Santander', 'Wells Fargo']
@@ -1521,7 +1521,9 @@ function UpworkStagingTab({ onImport }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')   // 'all' | 'uncat' | 'sel'
   const [importing, setImporting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [bulkCat, setBulkCat] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -1533,6 +1535,29 @@ function UpworkStagingTab({ onImport }) {
   const setCat = async (id, cat) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, cat } : r))
     try { await updateUpworkStagingCat(id, cat) } catch (e) { setMsg({ error: true, text: 'Error saving: ' + e.message }) }
+  }
+
+  const applyBulkCat = async () => {
+    if (!bulkCat || selected.size === 0) return
+    const ids = [...selected]
+    setRows(prev => prev.map(r => ids.includes(r.id) ? { ...r, cat: bulkCat } : r))
+    try {
+      await Promise.all(ids.map(id => updateUpworkStagingCat(id, bulkCat)))
+      setMsg({ error: false, text: `✓ "${bulkCat}" aplicado a ${ids.length} filas.` })
+    } catch (e) { setMsg({ error: true, text: 'Error: ' + e.message }) }
+  }
+
+  const doDelete = async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`¿Eliminar ${selected.size} fila(s) del staging? Esto no afecta el DB principal.`)) return
+    setDeleting(true)
+    try {
+      await deleteUpworkStagingRows([...selected])
+      setRows(prev => prev.filter(r => !selected.has(r.id)))
+      setSelected(new Set())
+      setMsg({ error: false, text: `✓ Eliminadas del staging.` })
+    } catch (e) { setMsg({ error: true, text: 'Error: ' + e.message }) }
+    setDeleting(false)
   }
 
   // Filtered + searched rows
@@ -1637,7 +1662,33 @@ function UpworkStagingTab({ onImport }) {
             color: selected.size > 0 ? '#fff' : muted, opacity: importing ? 0.6 : 1 }}>
           {importing ? '⏳ Importando…' : `⬆ Importar ${selected.size > 0 ? selected.size : ''} al DB`}
         </button>
+        <button
+          onClick={doDelete} disabled={deleting || selected.size === 0}
+          style={{ ...btnBase, background: selected.size > 0 ? (dark ? '#3b0f0f' : '#fee2e2') : (dark ? '#2a2a3e' : '#ddd'),
+            color: selected.size > 0 ? red : muted, opacity: deleting ? 0.6 : 1 }}>
+          {deleting ? '⏳' : `🗑 Eliminar ${selected.size > 0 ? selected.size : ''}`}
+        </button>
       </div>
+
+      {/* Bulk category row */}
+      {selected.size > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, padding: '6px 10px',
+          background: dark ? '#1a1a2e' : '#f0f0ff', borderRadius: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: muted }}>Categorizar {selected.size} seleccionados:</span>
+          <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
+            style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, border: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`,
+              background: dark ? '#12121f' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e', cursor: 'pointer' }}>
+            <option value="">— elegir categoría —</option>
+            {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button onClick={applyBulkCat} disabled={!bulkCat}
+            style={{ ...btnBase, padding: '3px 12px', fontSize: 12,
+              background: bulkCat ? '#5555cc' : (dark ? '#2a2a3e' : '#ddd'),
+              color: bulkCat ? '#fff' : muted }}>
+            Aplicar
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div style={{ overflowX: 'auto' }}>
