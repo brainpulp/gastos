@@ -1500,35 +1500,47 @@ function SettingsTab({ settings, cats, txs, onAddCat, onRenameCat, onDeleteCat, 
 
 // ─── Duplicados ───────────────────────────────────────────────────────────────
 
+// Extract the base ML ID (strip trailing _idx) to detect certain ML re-imports
+function mlBaseId(id) {
+  if (!id.startsWith('ml_')) return null
+  // id format: ml_{mlaId}_{date}_{idx}  — strip the last _number
+  return id.replace(/_\d+$/, '')
+}
+
 function DuplicadosTab({ txs, onDelete }) {
   const dark = useTheme()
   const S = makeS(dark)
-  const [deletingIds, setDeletingIds] = useState(new Set())
   const muted = dark ? '#8a8aaa' : '#888'
 
-  // Group by date+merchant+ars, keep groups with >1 row
+  // Build groups: same (date + ars + merchant) → potential duplicate
+  // Also flag as "certain" when all IDs share the same ML base ID
   const groups = useMemo(() => {
     const map = {}
     for (const t of txs) {
-      const key = `${t.date}||${t.merchant||''}||${t.ars}`
+      const key = `${t.date}||${String(t.ars)}||${t.merchant || ''}`
       if (!map[key]) map[key] = []
       map[key].push(t)
     }
-    return Object.values(map).filter(g => g.length > 1).sort((a, b) => b.length - a.length || b[0].date.localeCompare(a[0].date))
+    return Object.values(map)
+      .filter(g => g.length > 1)
+      .map(g => {
+        const bases = g.map(t => mlBaseId(t.id)).filter(Boolean)
+        const uniqueBases = new Set(bases)
+        // Certain = all rows are ML and all share the same base ID
+        const certain = bases.length === g.length && uniqueBases.size === 1
+        return { rows: g, certain }
+      })
+      .sort((a, b) => {
+        if (a.certain !== b.certain) return a.certain ? -1 : 1   // certain first
+        return b.rows.length - a.rows.length
+      })
   }, [txs])
 
-  const totalDups = groups.reduce((s, g) => s + g.length - 1, 0)
+  const certain = groups.filter(g => g.certain)
+  const uncertain = groups.filter(g => !g.certain)
+  const totalExtra = groups.reduce((s, g) => s + g.rows.length - 1, 0)
 
-  const deleteOne = async (id) => {
-    setDeletingIds(prev => new Set([...prev, id]))
-    await onDelete([id])
-    setDeletingIds(prev => { const n = new Set(prev); n.delete(id); return n })
-  }
-
-  const deleteAllButFirst = async (group) => {
-    const toDelete = group.slice(1).map(t => t.id)
-    await onDelete(toDelete)
-  }
+  const doDelete = async (ids) => { await onDelete(ids) }
 
   if (!groups.length) return (
     <div style={{ ...S.card, textAlign: 'center', color: muted, padding: 40 }}>
@@ -1536,50 +1548,89 @@ function DuplicadosTab({ txs, onDelete }) {
     </div>
   )
 
+  const renderGroup = (g, gi) => {
+    const rep = g.rows[0]
+    const label = rep.merchant || rep.raw_desc || '(sin descripción)'
+    const arsStr = rep.ars != null ? `-$${Math.abs(rep.ars).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '—'
+    const usdStr = rep.usd != null ? `-$${Math.abs(rep.usd).toFixed(2)}` : '—'
+    const accent = g.certain ? (dark ? '#1a3a2e' : '#d4edda') : (dark ? '#3a2a1a' : '#fff3cd')
+    const accentBorder = g.certain ? (dark ? '#2a6a4e' : '#c3e6cb') : (dark ? '#6a4a1a' : '#ffc107')
+    return (
+      <div key={gi} style={{ marginBottom: 14, border: `1px solid ${accentBorder}`, borderRadius: 8, overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: accent, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+            color: g.certain ? (dark ? '#6fcf97' : '#155724') : (dark ? '#f5a623' : '#856404') }}>
+            {g.certain ? '✓ CIERTO' : '? POSIBLE'}
+          </span>
+          <span style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{rep.date}</span>
+          <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={label}>{label}</span>
+          <span style={{ fontSize: 12, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{arsStr} · {usdStr}</span>
+          <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{g.rows.length}×</span>
+          {g.certain && (
+            <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+              onClick={() => doDelete(g.rows.slice(1).map(t => t.id))}>
+              🗑 Dejar 1, borrar {g.rows.length - 1}
+            </button>
+          )}
+        </div>
+        {/* Each row */}
+        {g.rows.map((t, ti) => (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px',
+            background: ti === 0 ? (dark ? '#111128' : '#f9fbff') : (dark ? '#0e0e1e' : '#fff'),
+            borderTop: `1px solid ${dark ? '#1e1e3e' : '#f0f0f0'}` }}>
+            <span style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', minWidth: 50,
+              color: ti === 0 ? (dark ? '#6fcf97' : '#00a650') : muted }}>
+              {ti === 0 ? '✓ guardar' : `copia ${ti}`}
+            </span>
+            <span style={{ fontSize: 10, color: muted, fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}
+              title={t.id}>{t.id}</span>
+            <span style={{ fontSize: 11, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: muted }}
+              title={t.raw_desc}>{t.raw_desc || t.merchant || '—'}</span>
+            <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{t.cat || '—'}</span>
+            {ti > 0 && (
+              <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+                onClick={() => doDelete([t.id])}>🗑</button>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div style={S.card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 15 }}>🔁 Duplicados</h3>
-        <span style={{ fontSize: 12, color: muted }}>{groups.length} grupos · {totalDups} copias extra</span>
+        <span style={{ fontSize: 12, color: muted }}>{groups.length} grupos · {totalExtra} copias extra</span>
       </div>
+      <p style={{ fontSize: 12, color: muted, marginBottom: 14, lineHeight: 1.5 }}>
+        <b style={{ color: dark ? '#6fcf97' : '#155724' }}>✓ CIERTO</b> — mismo ML ID base, mismo monto, misma fecha: definitivamente re-importado.<br/>
+        <b style={{ color: dark ? '#f5a623' : '#856404' }}>? POSIBLE</b> — mismo monto y fecha pero distinto origen: podría ser compra legítima. Revisá antes de borrar.
+      </p>
 
-      {groups.map((group, gi) => {
-        const rep = group[0]
-        const arsAbs = rep.ars != null ? `$${Math.abs(rep.ars).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '—'
-        const usdAbs = rep.usd != null ? `$${Math.abs(rep.usd).toFixed(2)}` : '—'
-        return (
-          <div key={gi} style={{ marginBottom: 16, border: `1px solid ${dark ? '#2a2a4a' : '#e0e0e0'}`, borderRadius: 8, overflow: 'hidden' }}>
-            {/* Group header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: dark ? '#1a1a3a' : '#f0f4ff', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 12 }}>{rep.date}</span>
-              <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={rep.merchant}>{rep.merchant || rep.raw_desc || '—'}</span>
-              <span style={{ fontSize: 12, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{arsAbs} · {usdAbs}</span>
-              <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{group.length}× duplicado</span>
-              <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
-                onClick={() => deleteAllButFirst(group)}>
-                🗑 Dejar 1, borrar {group.length - 1}
-              </button>
-            </div>
-            {/* Each copy */}
-            {group.map((t, ti) => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 12px',
-                background: ti === 0 ? (dark ? '#111128' : '#f9fbff') : (dark ? '#0e0e1e' : '#fff'),
-                borderTop: ti > 0 ? `1px solid ${dark ? '#1e1e3e' : '#f0f0f0'}` : undefined }}>
-                {ti === 0 && <span style={{ fontSize: 10, color: dark ? '#6fcf97' : '#00a650', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ KEEPER</span>}
-                {ti > 0  && <span style={{ fontSize: 10, color: muted, whiteSpace: 'nowrap' }}>copia {ti}</span>}
-                <span style={{ fontSize: 11, color: muted, fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.id}</span>
-                <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{t.cat || '—'}</span>
-                {ti > 0 && (
-                  <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
-                    disabled={deletingIds.has(t.id)}
-                    onClick={() => deleteOne(t.id)}>🗑</button>
-                )}
-              </div>
-            ))}
+      {certain.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: dark ? '#6fcf97' : '#155724' }}>Ciertos ({certain.length})</span>
+            <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
+              onClick={() => doDelete(certain.flatMap(g => g.rows.slice(1).map(t => t.id)))}>
+              🗑 Limpiar todos los ciertos ({certain.reduce((s,g) => s + g.rows.length - 1, 0)} copias)
+            </button>
           </div>
-        )
-      })}
+          {certain.map(renderGroup)}
+        </>
+      )}
+
+      {uncertain.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, color: dark ? '#f5a623' : '#856404', marginBottom: 8, marginTop: certain.length ? 16 : 0 }}>
+            Posibles — revisá antes de borrar ({uncertain.length})
+          </div>
+          {uncertain.map(renderGroup)}
+        </>
+      )}
     </div>
   )
 }
