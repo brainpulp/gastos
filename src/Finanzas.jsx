@@ -1499,14 +1499,26 @@ function parseMLARS(s) {
   return parseFloat(s.replace(/[$\s.]/g, '').replace(',', '.')) || null
 }
 
+const ML_STORAGE_KEY = 'ml_import_rows'
+
 function MLImportTab({ onImport }) {
   const dark = useTheme()
   const S = makeS(dark)
-  const [rows, setRows] = useState([])
+  const [rows, setRows] = useState(() => {
+    try { const s = localStorage.getItem(ML_STORAGE_KEY); return s ? JSON.parse(s) : [] }
+    catch { return [] }
+  })
   const [search, setSearch] = useState('')
   const [importing, setImporting] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [bulkCat, setBulkCat] = useState('')
   const fileRef = useRef()
+
+  // Persist rows to localStorage whenever they change
+  useEffect(() => {
+    try { localStorage.setItem(ML_STORAGE_KEY, JSON.stringify(rows)) }
+    catch { /* quota exceeded — ignore */ }
+  }, [rows])
 
   const loadFile = (e) => {
     const file = e.target.files[0]
@@ -1515,6 +1527,12 @@ function MLImportTab({ onImport }) {
     reader.onload = ev => {
       const doc = new DOMParser().parseFromString(ev.target.result, 'text/html')
       const trs = doc.querySelectorAll('#tbl tbody tr')
+      // Merge with existing stored rows so we don't lose categorizations
+      const stored = (() => {
+        try { const s = localStorage.getItem(ML_STORAGE_KEY); return s ? JSON.parse(s) : [] }
+        catch { return [] }
+      })()
+      const storedByMlaId = Object.fromEntries(stored.map(r => [r.mlaId, r]))
       const parsed = []
       trs.forEach((tr, i) => {
         const tds = tr.querySelectorAll('td')
@@ -1533,10 +1551,11 @@ function MLImportTab({ onImport }) {
         const ars = parseMLARS(tds[7].textContent.trim())
         const mlaId = (tds[10] ? tds[10].textContent.trim() : '').replace('MLA-', '')
         const date = parseMLDate(dateStr)
-        parsed.push({ idx: i, included: isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, img, cat: '' })
+        const prev = storedByMlaId[mlaId]
+        parsed.push({ idx: i, included: prev ? prev.included : isOk, name, detail, dateStr, date, status, isOk, seller, ars, mlaId, link, img, cat: prev ? prev.cat : '' })
       })
       setRows(parsed)
-      setMsg({ type: 'ok', text: `${parsed.length} compras cargadas · ${parsed.filter(r => r.isOk).length} entregadas seleccionadas` })
+      setMsg({ type: 'ok', text: `${parsed.length} compras cargadas · ${parsed.filter(r => r.cat).length} ya categorizadas` })
     }
     reader.readAsText(file, 'UTF-8')
   }
@@ -1544,6 +1563,16 @@ function MLImportTab({ onImport }) {
   const toggle = (idx) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, included: !r.included } : r))
   const setCat = (idx, cat) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, cat } : r))
   const toggleAll = (v) => setRows(prev => prev.map(r => ({ ...r, included: v })))
+  const applyBulkCat = () => {
+    if (!bulkCat) return
+    setRows(prev => prev.map(r => r.included ? { ...r, cat: bulkCat } : r))
+    setBulkCat('')
+  }
+  const clearStorage = () => {
+    localStorage.removeItem(ML_STORAGE_KEY)
+    setRows([])
+    setMsg({ type: 'ok', text: 'Progreso borrado.' })
+  }
 
   const visible = rows.filter(r => {
     const q = search.toLowerCase()
@@ -1602,17 +1631,29 @@ function MLImportTab({ onImport }) {
 
       {rows.length > 0 && (<>
         {/* Stats + controls */}
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13 }}><b>{selected.length}</b> seleccionadas</span>
-          {uncat > 0 && <span style={{ fontSize: 12, color: '#f5a623', fontWeight: 600 }}>⚠ {uncat} sin categoría</span>}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13 }}><b>{selected.length}</b> selec. · <b>{rows.filter(r => r.cat).length}</b>/{rows.length} categorizadas</span>
+          {uncat > 0 && <span style={{ fontSize: 12, color: '#f5a623', fontWeight: 600 }}>⚠ {uncat} sin cat</span>}
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto o vendedor…"
-            style={{ ...S.input, fontSize: 12, width: 220 }} />
+            style={{ ...S.input, fontSize: 12, width: 200 }} />
           <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={() => toggleAll(true)}>☑ Todos</button>
           <button style={{ ...S.btnSm(), fontSize: 11 }} onClick={() => toggleAll(false)}>☐ Ninguno</button>
+          {/* Bulk cat */}
+          <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
+            style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: `1px solid ${dark ? '#555' : '#ddd'}`,
+              background: dark ? '#12121f' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e' }}>
+            <option value="">— asignar categoría a selec. —</option>
+            {ML_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button style={{ ...S.btnSm(), fontSize: 11, opacity: bulkCat && selected.length ? 1 : 0.4 }}
+            disabled={!bulkCat || !selected.length} onClick={applyBulkCat}>
+            Aplicar a {selected.length}
+          </button>
           <button style={{ ...S.btn('primary'), padding: '5px 16px', fontSize: 12, marginLeft: 'auto', opacity: importing ? .6 : 1 }}
             disabled={importing} onClick={doImport}>
             {importing ? 'Importando…' : `⬆ Importar ${selected.filter(r => r.date).length}`}
           </button>
+          <button style={{ ...S.btnSm(), fontSize: 10, opacity: 0.5 }} onClick={clearStorage} title="Borrar progreso guardado">🗑</button>
         </div>
 
         {/* Table */}
