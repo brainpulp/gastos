@@ -1511,10 +1511,26 @@ function mlBaseId(id) {
   return id.replace(/_\d+$/, '')
 }
 
+const DUP_DISMISSED_KEY = 'dup_dismissed_bases'
+function loadDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(DUP_DISMISSED_KEY)) || []) } catch { return new Set() }
+}
+function saveDismissed(set) {
+  try { localStorage.setItem(DUP_DISMISSED_KEY, JSON.stringify([...set])) } catch {}
+}
+
 function DuplicadosTab({ txs, onDelete }) {
   const dark = useTheme()
   const S = makeS(dark)
   const muted = dark ? '#8a8aaa' : '#888'
+  const [dismissed, setDismissed] = useState(() => loadDismissed())
+
+  const dismiss = (base) => {
+    const next = new Set(dismissed)
+    next.add(base)
+    saveDismissed(next)
+    setDismissed(next)
+  }
 
   // Only detect CERTAIN duplicates: ML rows sharing the same base ID (strip _idx suffix)
   // Bank transactions cannot be reliably deduplicated by date+merchant+amount alone —
@@ -1529,18 +1545,20 @@ function DuplicadosTab({ txs, onDelete }) {
     }
     return Object.values(map)
       .filter(g => g.length > 1)
-      .map(g => ({ rows: g.sort((a, b) => a.id.localeCompare(b.id)), certain: true }))
+      .map(g => ({ rows: g.sort((a, b) => a.id.localeCompare(b.id)), certain: true, base: mlBaseId(g[0].id) }))
       .sort((a, b) => b.rows.length - a.rows.length)
   }, [txs])
 
-  const certain = groups.filter(g => g.certain)
-  const totalExtra = groups.reduce((s, g) => s + g.rows.length - 1, 0)
+  const visible = groups.filter(g => !dismissed.has(g.base))
+
+  const totalExtra = visible.reduce((s, g) => s + g.rows.length - 1, 0)
 
   const doDelete = async (ids) => { await onDelete(ids) }
 
-  if (!groups.length) return (
+  if (!visible.length) return (
     <div style={{ ...S.card, textAlign: 'center', color: muted, padding: 40 }}>
       ✅ No se encontraron transacciones duplicadas.
+      {dismissed.size > 0 && <div style={{ marginTop: 10, fontSize: 12 }}>({dismissed.size} grupos descartados como "no dup")</div>}
     </div>
   )
 
@@ -1558,6 +1576,11 @@ function DuplicadosTab({ txs, onDelete }) {
             title={label}>{label}</span>
           <span style={{ fontSize: 12, color: dark ? '#e05252' : '#c0392b', whiteSpace: 'nowrap' }}>{arsStr} · {usdStr}</span>
           <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap' }}>{g.rows.length}×</span>
+          <button style={{ ...S.btnSm('ghost'), fontSize: 11 }}
+            title="Marcar como no-duplicado y ocultar este grupo"
+            onClick={() => dismiss(g.base)}>
+            ✗ no es dup
+          </button>
           <button style={{ ...S.btnSm('danger'), fontSize: 11 }}
             onClick={() => doDelete(g.rows.slice(1).map(t => t.id))}>
             🗑 Dejar 1, borrar {g.rows.length - 1}
@@ -1591,15 +1614,15 @@ function DuplicadosTab({ txs, onDelete }) {
     <div style={S.card}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 15 }}>🔁 Duplicados ML</h3>
-        <span style={{ fontSize: 12, color: muted }}>{groups.length} grupos · {totalExtra} copias extra</span>
-        {groups.length > 0 && (
+        <span style={{ fontSize: 12, color: muted }}>{visible.length} grupos · {totalExtra} copias extra</span>
+        {visible.length > 0 && (
           <button style={{ ...S.btnSm('danger'), fontSize: 11, marginLeft: 'auto' }}
-            onClick={() => doDelete(groups.flatMap(g => g.rows.slice(1).map(t => t.id)))}>
+            onClick={() => doDelete(visible.flatMap(g => g.rows.slice(1).map(t => t.id)))}>
             🗑 Limpiar todos ({totalExtra} copias)
           </button>
         )}
       </div>
-      {groups.map(renderGroup)}
+      {visible.map(renderGroup)}
     </div>
   )
 }
