@@ -1560,8 +1560,8 @@ function MLImportTab({ onImport }) {
     reader.readAsText(file, 'UTF-8')
   }
 
-  const toggle = (id) => setRows(prev => prev.map(r => r.mlaId === id ? { ...r, included: !r.included } : r))
-  const setCat = (id, cat) => setRows(prev => prev.map(r => r.mlaId === id ? { ...r, cat } : r))
+  const toggle = (idx) => setRows(prev => prev.map(r => r.idx === idx ? { ...r, included: !r.included } : r))
+  const setCat = (idx, cat) => setRows(prev => prev.map(r => r.idx === idx ? { ...r, cat } : r))
   const toggleAll = (v) => setRows(prev => prev.map(r => ({ ...r, included: v })))
   const applyBulkCat = () => {
     if (!bulkCat) return
@@ -1590,7 +1590,7 @@ function MLImportTab({ onImport }) {
     setImporting(true)
     try {
       const txObjs = toSend.map(r => ({
-        id: `ml_${r.mlaId}_${(r.date||'').replace(/-/g,'')}`,
+        id: `ml_${r.mlaId || r.idx}_${(r.date||'').replace(/-/g,'')}_${r.idx}`,
         date: r.date,
         merchant: r.name.slice(0, 200),
         raw_desc: `ML: ${r.seller}${r.detail ? ' · ' + r.detail : ''}`,
@@ -1605,8 +1605,8 @@ function MLImportTab({ onImport }) {
       onImport(txObjs)
       setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
       // Remove imported rows entirely — they live in the main DB now
-      const importedMlaIds = new Set(toSend.map(r => r.mlaId))
-      setRows(prev => prev.filter(r => !importedMlaIds.has(r.mlaId)))
+      const importedIdxs = new Set(toSend.map(r => r.idx))
+      setRows(prev => prev.filter(r => !importedIdxs.has(r.idx)))
     } catch (err) {
       setMsg({ type: 'err', text: `Error: ${err.message}` })
     } finally {
@@ -1672,9 +1672,9 @@ function MLImportTab({ onImport }) {
             </thead>
             <tbody>
               {visible.map((r, i) => (
-                <tr key={r.mlaId} style={{ opacity: r.included ? 1 : 0.35, background: r.included ? undefined : 'transparent' }}>
+                <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.35, background: r.included ? undefined : 'transparent' }}>
                   <td style={{ ...S.td, width: 28, textAlign: 'center' }}>
-                    <input type="checkbox" checked={r.included} onChange={() => toggle(r.mlaId)} />
+                    <input type="checkbox" checked={r.included} onChange={() => toggle(r.idx)} />
                   </td>
                   <td style={{ ...S.td, width: 58, padding: '4px 6px' }}>
                     {r.img
@@ -1695,7 +1695,7 @@ function MLImportTab({ onImport }) {
                     {r.ars != null ? `$ ${r.ars.toLocaleString('es-AR')}` : '—'}
                   </td>
                   <td style={S.td}>
-                    <select value={r.cat} onChange={e => setCat(r.mlaId, e.target.value)}
+                    <select value={r.cat} onChange={e => setCat(r.idx, e.target.value)}
                       style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, border: `1px solid ${r.cat ? '#5555aa' : (dark ? '#555' : '#ddd')}`,
                         background: r.cat ? (dark ? '#1a1a3e' : '#eef') : (dark ? '#12121f' : '#fff'),
                         color: dark ? '#e0e0e0' : '#1a1a2e', cursor: 'pointer' }}>
