@@ -876,6 +876,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
       if (col === 'usd' || col === 'ars') { av = av ?? 0; bv = bv ?? 0 }
       if (av == null) return 1
       if (bv == null) return -1
+      if (typeof av === 'string') return mul * av.localeCompare(bv, undefined, { sensitivity: 'base' })
       return av < bv ? -mul : av > bv ? mul : 0
     })
   }, [txs, sort])
@@ -1007,7 +1008,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
                 />
               </th>
               <SortTh col="date" label="Fecha" />
-              <th style={S.th}>Comercio / Descripción</th>
+              <SortTh col="merchant" label="Comercio / Descripción" />
               <SortTh col="bank" label="Banco" />
               <SortTh col="cat" label="Categoría" />
               <SortTh col="ars" label="ARS" align="right" />
