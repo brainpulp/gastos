@@ -46,6 +46,22 @@ const BANK_STYLE = {
 
 const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized Expenses'
 
+/**
+ * Boolean search: "word1 AND word2 OR word3"
+ * OR has lowest precedence; AND (or plain spaces) is implicit AND.
+ * Each term matched against merchant, raw_desc, cat, notes.
+ */
+function matchesBoolSearch(tx, raw) {
+  if (!raw) return true
+  const haystack = [tx.merchant, tx.raw_desc, tx.cat, tx.notes]
+    .filter(Boolean).map(s => s.toLowerCase()).join(' ')
+  const orGroups = raw.toLowerCase().split(/\bor\b/)
+  return orGroups.some(group => {
+    const terms = group.split(/\band\b|\s+/).map(s => s.trim()).filter(Boolean)
+    return terms.every(term => haystack.includes(term))
+  })
+}
+
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 const fmtDate = (s) => {
@@ -288,11 +304,7 @@ export default function Finanzas({ session, onLogout }) {
     if (catFs.length && !catFs.includes(t.cat)) return false
     if (bankFs.length && !bankFs.includes(t.bank)) return false
     if (showUncatOnly && !isUncat(t)) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!(t.raw_desc?.toLowerCase().includes(q) || t.merchant?.toLowerCase().includes(q) ||
-            t.cat?.toLowerCase().includes(q) || t.notes?.toLowerCase().includes(q))) return false
-    }
+    if (search && !matchesBoolSearch(t, search)) return false
     if (amountMin !== '' || amountMax !== '') {
       const val = Math.abs(t[amountCur] ?? 0)
       if (amountMin !== '' && val < parseFloat(amountMin)) return false
@@ -420,6 +432,28 @@ export default function Finanzas({ session, onLogout }) {
     }
   }
 
+  const handleExportXLSX = () => {
+    if (!filtered.length) return
+    const rows = filtered.map(t => ({
+      Fecha:       t.date ?? '',
+      Merchant:    t.merchant ?? '',
+      Descripción: t.raw_desc ?? '',
+      Categoría:   t.cat ?? '',
+      Banco:       t.bank ?? '',
+      ARS:         t.ars ?? '',
+      USD:         t.usd ?? '',
+      'USD Rate':  t.usd_rate ?? '',
+      Notas:       t.notes ?? '',
+      Referencia:  t.referencia ?? '',
+      ID:          t.id ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Transacciones')
+    const label = filterActive ? 'filtrado' : 'todas'
+    XLSX.writeFile(wb, `gastos_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   const goToMonth = (ym) => {
     if (!ym) return
     const [y, m] = ym.split('-').map(Number)
@@ -521,6 +555,14 @@ export default function Finanzas({ session, onLogout }) {
         <span style={S.spacer} />
         <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
           {dark ? '☀️' : '🌙'}
+        </button>
+        <button
+          style={{ padding: '5px 12px', fontSize: 13, cursor: filtered.length ? 'pointer' : 'default', color: filtered.length ? '#ccc' : '#555', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
+          onClick={handleExportXLSX}
+          disabled={!filtered.length}
+          title={`Exportar ${filtered.length} transacciones visibles a XLSX`}
+        >
+          📤 Exportar ({filtered.length})
         </button>
         <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
