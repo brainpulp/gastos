@@ -307,8 +307,11 @@ export default function Finanzas({ session, onLogout }) {
     if (search && !matchesBoolSearch(t, search)) return false
     if (amountMin !== '' || amountMax !== '') {
       const val = Math.abs(t[amountCur] ?? 0)
-      if (amountMin !== '' && val < parseFloat(amountMin)) return false
-      if (amountMax !== '' && val > parseFloat(amountMax)) return false
+      const min = parseFloat(amountMin)
+      const max = parseFloat(amountMax)
+      if (amountMin !== '' && !isNaN(min) && val < min) return false
+      if (amountMax !== '' && !isNaN(max) && val > max) return false
+      // if both fields are set but produce NaN, exclude nothing (fail-open is better than hiding data silently)
     }
     return true
   }), [txs, selYears, dateFrom, dateTo, catFs, bankFs, search, showUncatOnly, amountMin, amountMax, amountCur])
