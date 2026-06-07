@@ -2186,7 +2186,8 @@ function MLImportTab({ onImport }) {
         }
       })
       const { skipped } = await upsertTransactions(txObjs)
-      onImport(txObjs)
+      const skippedIds = new Set(skipped)
+      onImport(txObjs.filter(t => !skippedIds.has(t.id)))
       setMsg({ type: 'ok', text: `✅ ${txObjs.length - skipped.length} importadas${skipped.length ? ` · ${skipped.length} ya existían` : ''}.` })
       // Remember these IDs so they're skipped even if the HTML is reloaded
       const doneSet = loadDoneSet()
