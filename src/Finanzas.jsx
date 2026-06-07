@@ -53,12 +53,12 @@ const isUncat = (t) => !t.cat || t.cat.trim() === '' || t.cat === 'Uncategorized
  */
 function matchesBoolSearch(tx, raw) {
   if (!raw) return true
-  const haystack = [tx.merchant, tx.raw_desc, tx.cat, tx.notes]
+  const haystack = [tx.merchant, tx.raw_desc, tx.cat, tx.notes, tx.referencia]
     .filter(Boolean).map(s => s.toLowerCase()).join(' ')
   const orGroups = raw.toLowerCase().split(/\bor\b/)
   return orGroups.some(group => {
     const terms = group.split(/\band\b|\s+/).map(s => s.trim()).filter(Boolean)
-    return terms.every(term => haystack.includes(term))
+    return terms.length > 0 && terms.every(term => haystack.includes(term))
   })
 }
 
