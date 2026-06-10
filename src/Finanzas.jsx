@@ -10,11 +10,10 @@ import * as XLSX from 'xlsx'
 import { parseXLSX } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
-  bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadCatLog, loadBlueRates,
+  bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadBlueRates,
   loadDeletedTransactions, restoreTransaction,
   loadUpworkStaging, updateUpworkStagingCat, importUpworkRows, deleteUpworkStagingRows,
 } from './db.js'
-import { categorizeTxs } from './categorize.js'
 
 const ThemeCtx = createContext(false)
 const useTheme = () => useContext(ThemeCtx)
@@ -222,6 +221,70 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
   )
 }
 
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+const SIDEBAR_ITEMS = [
+  { id: 'papelera',   icon: '🗑',  label: 'Papelera'   },
+  { id: 'duplicados', icon: '📋',  label: 'Duplicados' },
+  { id: 'ml',         icon: '📦',  label: 'ML Import'  },
+  { id: 'upwork',     icon: '🧑‍💻', label: 'Upwork'     },
+]
+
+function Sidebar({ activePanel, onNavigate }) {
+  return (
+    <div style={{
+      width: 130, minWidth: 130, background: '#12122a', display: 'flex',
+      flexDirection: 'column', padding: '0 0 12px 0', userSelect: 'none',
+      position: 'sticky', top: 0, height: '100vh', overflowY: 'auto', flexShrink: 0,
+    }}>
+      {/* Logo */}
+      <div
+        onClick={() => onNavigate('main')}
+        style={{ padding: '16px 12px 14px', cursor: 'pointer', borderBottom: '1px solid #2a2a4e' }}
+      >
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>💰 gastos</span>
+      </div>
+
+      {/* Nav items */}
+      <div style={{ flex: 1, padding: '8px 0' }}>
+        {SIDEBAR_ITEMS.map(item => (
+          <div
+            key={item.id}
+            onClick={() => onNavigate(item.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 12px', cursor: 'pointer', fontSize: 13,
+              borderRadius: 6, margin: '2px 6px',
+              background: activePanel === item.id ? '#2a2a4e' : 'transparent',
+              color: activePanel === item.id ? '#7c7cff' : '#aaa',
+            }}
+          >
+            <span style={{ fontSize: 15 }}>{item.icon}</span>
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Config at bottom */}
+      <div style={{ borderTop: '1px solid #2a2a4e', padding: '8px 0 0' }}>
+        <div
+          onClick={() => onNavigate('settings')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 12px', cursor: 'pointer', fontSize: 13,
+            borderRadius: 6, margin: '2px 6px',
+            background: activePanel === 'settings' ? '#2a2a4e' : 'transparent',
+            color: activePanel === 'settings' ? '#7c7cff' : '#aaa',
+          }}
+        >
+          <span style={{ fontSize: 15 }}>⚙</span>
+          <span>Config</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Finanzas({ session, onLogout }) {
@@ -230,17 +293,17 @@ export default function Finanzas({ session, onLogout }) {
   const [blueRates, setBlueRates] = useState({})
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState(null)
-  const [activeTab, setActiveTab] = useState(() => {
+  const [activePanel, setActivePanel] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'duplicados', 'papelera']
-    return valid.includes(hash) ? hash : 'dash'
+    const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork']
+    return valid.includes(hash) ? hash : 'main'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['dash', 'txs', 'revisar', 'auditoria', 'settings', 'ml', 'duplicados', 'papelera']
-      if (valid.includes(hash)) setActiveTab(hash)
+      const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork']
+      setActivePanel(valid.includes(hash) ? hash : 'main')
     }
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -415,17 +478,8 @@ export default function Finanzas({ session, onLogout }) {
         const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
         return { ...tx, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
       })
-      setUploadMsg({ loading: true, text: `Categorizando ${count} transacciones…` })
-      const catLog = await loadCatLog({ limit: 1000 })
-      const categorized = await categorizeTxs(
-        enriched,
-        settings,
-        catLog,
-        session?.access_token,
-        (done, total) => setUploadMsg({ loading: true, text: `Categorizando ${done}/${total}…` }),
-      )
       setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
-      const { skipped } = await upsertTransactions(categorized)
+      const { skipped } = await upsertTransactions(enriched)
       const fresh = await loadTransactions()
       setTxs(fresh)
       const skipMsg = skipped.length ? ` (${skipped.length} omitidas — borradas previamente)` : ''
@@ -468,7 +522,6 @@ export default function Finanzas({ session, onLogout }) {
   const goToCat = (cat) => {
     if (!cat) return
     setCatFs([cat])
-    setActiveTab('txs')
   }
 
   const cats = useMemo(
@@ -534,161 +587,168 @@ export default function Finanzas({ session, onLogout }) {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', color: '#888' }}>Cargando datos…</div>
   if (loadErr) return <div style={{ padding: 32, color: '#c00', fontFamily: 'sans-serif' }}>Error: {loadErr}</div>
 
-  const reviewCount = txs.filter(t => t.needs_review && !t.deleted_at).length
   const uncatCount = txs.filter(isUncat).length
-
-  const TABS = [
-    { id: 'dash', label: 'Dashboard' },
-    { id: 'txs', label: 'Transacciones' },
-    { id: 'revisar', label: `Revisar${reviewCount ? ` (${reviewCount})` : ''}` },
-    { id: 'auditoria', label: 'Historial IA' },
-    { id: 'ml', label: '📦 ML Import' },
-    { id: 'duplicados', label: '🔁 Duplicados' },
-    { id: 'upwork', label: '🧑‍💻 Upwork' },
-    { id: 'papelera', label: '🗑 Papelera' },
-    { id: 'settings', label: '⚙ Config' },
-  ]
 
   return (
     <ThemeCtx.Provider value={dark}>
-    <div style={S.app}>
-      <nav style={S.nav}>
-        <span style={S.logo}>💸 Gastos</span>
-        {TABS.map(t => <button key={t.id} style={S.navBtn(activeTab === t.id)} onClick={() => { setActiveTab(t.id); window.location.hash = t.id }}>{t.label}</button>)}
-        <span style={S.spacer} />
+    <div style={{ ...S.app, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+
+      {/* Top strip: upload message + actions */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+        gap: 8, padding: '6px 16px',
+        background: dark ? '#0d0d1a' : '#1a1a2e',
+        borderBottom: '1px solid #2a2a4e',
+        flexShrink: 0,
+      }}>
+        {uploadMsg && (
+          <div style={{ flex: 1, padding: '2px 10px', background: uploadMsg.error ? '#fee2e2' : '#d1fae5', color: uploadMsg.error ? '#991b1b' : '#065f46', fontSize: 12, borderRadius: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{uploadMsg.loading ? '⏳ ' : ''}{uploadMsg.text}</span>
+            {!uploadMsg.loading && <button onClick={() => setUploadMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>×</button>}
+          </div>
+        )}
         <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
           {dark ? '☀️' : '🌙'}
         </button>
         <button
-          style={{ padding: '5px 12px', fontSize: 13, cursor: filtered.length ? 'pointer' : 'default', color: filtered.length ? '#ccc' : '#555', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
+          style={{ padding: '4px 10px', fontSize: 12, cursor: filtered.length ? 'pointer' : 'default', color: '#ccc', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
           onClick={handleExportXLSX}
           disabled={!filtered.length}
-          title={`Exportar ${filtered.length} transacciones visibles a XLSX`}
+          title={`Exportar ${filtered.length} transacciones a XLSX`}
         >
           📤 Exportar ({filtered.length})
         </button>
-        <label style={{ padding: '5px 12px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
+        <label style={{ padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
           📥 Subir XLSX
           <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
         </label>
-        <button style={{ ...S.logoutBtn, marginLeft: 8 }} onClick={onLogout}>Salir</button>
-      </nav>
+        <button style={{ ...S.logoutBtn }} onClick={onLogout}>Salir</button>
+      </div>
 
-      {uploadMsg && (
-        <div style={{ padding: '8px 20px', background: uploadMsg.error ? '#fee2e2' : '#d1fae5', color: uploadMsg.error ? '#991b1b' : '#065f46', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{uploadMsg.loading ? '⏳ ' : ''}{uploadMsg.text}</span>
-          {!uploadMsg.loading && <button onClick={() => setUploadMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}>×</button>}
-        </div>
-      )}
+      {/* Body: sidebar + content */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <Sidebar activePanel={activePanel} onNavigate={id => { setActivePanel(id); window.location.hash = id }} dark={dark} />
 
-      <div style={S.content}>
-        {!['auditoria', 'settings', 'ml', 'duplicados', 'upwork', 'papelera'].includes(activeTab) && (
-          <div style={S.filterBar}>
-            <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Período</span>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <input type="date" style={{ ...S.input, width: 130 }} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-                <span style={{ fontSize: 12, color: '#aaa' }}>→</span>
-                <input type="date" style={{ ...S.input, width: 130 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Filter bar — only in main view */}
+          {activePanel === 'main' && (
+            <div style={{ ...S.filterBar, position: 'sticky', top: 0, zIndex: 10 }}>
+              <div style={S.filterGroup}>
+                <span style={S.filterLabel}>Período</span>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <input type="date" style={{ ...S.input, width: 130 }} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                  <span style={{ fontSize: 12, color: '#aaa' }}>→</span>
+                  <input type="date" style={{ ...S.input, width: 130 }} value={dateTo} onChange={e => setDateTo(e.target.value)} />
+                </div>
               </div>
-            </div>
-            <MultiSelectFilter label="Año" options={availYears.map(String)} selected={selYears} onChange={setSelYears} />
-            <MultiSelectFilter label="Categoría" options={availCats} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
-            <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
-            <div style={S.filterGroup}>
-              <span style={S.filterLabel}>Monto</span>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <select style={{ ...S.select, padding: '4px 6px', fontWeight: 600 }} value={amountCur} onChange={e => setAmountCur(e.target.value)}>
-                  <option value="usd">USD</option>
-                  <option value="ars">ARS</option>
-                </select>
-                <input type="number" style={{ ...S.input, width: 80 }} placeholder="min" value={amountMin} onChange={e => setAmountMin(e.target.value)} />
-                <span style={{ fontSize: 12, color: '#aaa' }}>—</span>
-                <input type="number" style={{ ...S.input, width: 80 }} placeholder="max" value={amountMax} onChange={e => setAmountMax(e.target.value)} />
-                <button style={{ ...S.btnSm(amountMin === '5' && amountCur === 'usd' ? 'active' : 'ghost'), fontSize: 11, padding: '3px 8px' }}
-                  onClick={() => { setAmountCur('usd'); setAmountMin(amountMin === '5' ? '' : '5') }}>
-                  {amountMin === '5' && amountCur === 'usd' ? '✓ ' : ''}ocultar &lt;$5
+              <MultiSelectFilter label="Año" options={availYears.map(String)} selected={selYears} onChange={setSelYears} />
+              <MultiSelectFilter label="Categoría" options={availCats} selected={catFs} onChange={setCatFs} groups={settings?.expense_groups ?? []} />
+              <MultiSelectFilter label="Banco" options={BANKS} selected={bankFs} onChange={setBankFs} />
+              <div style={S.filterGroup}>
+                <span style={S.filterLabel}>Monto</span>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <select style={{ ...S.select, padding: '4px 6px', fontWeight: 600 }} value={amountCur} onChange={e => setAmountCur(e.target.value)}>
+                    <option value="usd">USD</option>
+                    <option value="ars">ARS</option>
+                  </select>
+                  <input type="number" style={{ ...S.input, width: 80 }} placeholder="min" value={amountMin} onChange={e => setAmountMin(e.target.value)} />
+                  <span style={{ fontSize: 12, color: '#aaa' }}>—</span>
+                  <input type="number" style={{ ...S.input, width: 80 }} placeholder="max" value={amountMax} onChange={e => setAmountMax(e.target.value)} />
+                  <button style={{ ...S.btnSm(amountMin === '5' && amountCur === 'usd' ? 'active' : 'ghost'), fontSize: 11, padding: '3px 8px' }}
+                    onClick={() => { setAmountCur('usd'); setAmountMin(amountMin === '5' ? '' : '5') }}>
+                    {amountMin === '5' && amountCur === 'usd' ? '✓ ' : ''}ocultar &lt;$5
+                  </button>
+                </div>
+              </div>
+              <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
+                <span style={S.filterLabel}>Buscar</span>
+                <input style={{ ...S.input, width: '100%' }} placeholder="descripción, comercio, notas…" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <div style={{ ...S.filterGroup, justifyContent: 'flex-end' }}>
+                <span style={S.filterLabel}>Sin cat</span>
+                <button
+                  style={{ ...S.btnSm(showUncatOnly ? 'active' : 'ghost'), padding: '4px 10px', whiteSpace: 'nowrap' }}
+                  onClick={() => { if (!showUncatOnly) setCatFs([]); setShowUncatOnly(s => !s) }}
+                >
+                  {showUncatOnly ? '✓ ' : ''}{uncatCount} sin categoría
                 </button>
               </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button style={S.btnSm()} onClick={resetFilters}>Limpiar</button>
+              </div>
             </div>
-            <div style={{ ...S.filterGroup, flex: 1, minWidth: 180 }}>
-              <span style={S.filterLabel}>Buscar</span>
-              <input style={{ ...S.input, width: '100%' }} placeholder="descripción, comercio, notas…" value={search} onChange={e => setSearch(e.target.value)} />
-            </div>
-            <div style={{ ...S.filterGroup, justifyContent: 'flex-end' }}>
-              <span style={S.filterLabel}>Sin cat</span>
-              <button
-                style={{ ...S.btnSm(showUncatOnly ? 'active' : 'ghost'), padding: '4px 10px', whiteSpace: 'nowrap' }}
-                onClick={() => { if (!showUncatOnly) setCatFs([]); setShowUncatOnly(s => !s) }}
-              >
-                {showUncatOnly ? '✓ ' : ''}{uncatCount} sin categoría
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button style={S.btnSm()} onClick={resetFilters}>Limpiar</button>
-            </div>
-          </div>
-        )}
+          )}
 
-        {filterActive && !['auditoria', 'settings', 'ml', 'duplicados', 'upwork', 'papelera'].includes(activeTab) && (
-          <div style={{
-            background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
-            marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
-          }}>
-            <span style={{ color: '#888', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              {filtered.length} transacciones
-            </span>
-            {filterSummary.out !== 0 && (
-              <span style={{ color: '#ff7675' }}>
-                Gastos: <strong>{fmtUSD(filterSummary.out)}</strong>
+          {/* Filter summary */}
+          {filterActive && activePanel === 'main' && (
+            <div style={{
+              background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
+              margin: '0 16px 8px', display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
+            }}>
+              <span style={{ color: '#888', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                {filtered.length} transacciones
               </span>
-            )}
-            {filterSummary.inc !== 0 && (
-              <span style={{ color: '#55efc4' }}>
-                Ingresos: <strong>{fmtUSD(filterSummary.inc)}</strong>
-              </span>
-            )}
-            {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
-              <span style={{ color: '#74b9ff' }}>
-                Neto: <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong>
-              </span>
-            )}
-          </div>
-        )}
+              {filterSummary.out !== 0 && (
+                <span style={{ color: '#ff7675' }}>
+                  Gastos: <strong>{fmtUSD(filterSummary.out)}</strong>
+                </span>
+              )}
+              {filterSummary.inc !== 0 && (
+                <span style={{ color: '#55efc4' }}>
+                  Ingresos: <strong>{fmtUSD(filterSummary.inc)}</strong>
+                </span>
+              )}
+              {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
+                <span style={{ color: '#74b9ff' }}>
+                  Neto: <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong>
+                </span>
+              )}
+            </div>
+          )}
 
-        {activeTab === 'dash' && (
-          <DashTab
-            expenseTxs={expenseTxs}
-            totalUSD={totalUSD} totalARS={totalARS}
-            perMonthUSD={perMonthUSD} perMonthARS={perMonthARS}
-            periodMonths={periodMonths}
-            monthlyStackedChart={monthlyStackedChart}
-            catChart={catChart}
-            dashGroupStats={dashGroupStats}
-            lastTxDate={lastTxDate}
-            totalesData={totalesData}
-            badge={badge}
-            onMonthClick={goToMonth}
-            onCatClick={goToCat}
-          />
-        )}
-        {activeTab === 'txs' && <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkDelete={bulkDeleteTxs} onBulkUpdate={bulkUpdateTxs} onAdd={addTx} badge={badge} cats={cats} />}
-        {activeTab === 'revisar' && <RevisarTab txs={txs} setTxs={setTxs} badge={badge} cats={cats} />}
-        {activeTab === 'auditoria' && <AuditoriaTab badge={badge} />}
-        {activeTab === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
-        {activeTab === 'duplicados' && <DuplicadosTab txs={txs} onDelete={bulkDeleteTxs} />}
-        {activeTab === 'upwork' && <UpworkStagingTab onImport={imported => setTxs(prev => [...imported, ...prev.filter(t => !imported.find(i => i.id === t.id))])} />}
-        {activeTab === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
-        {activeTab === 'settings' && <SettingsTab
-          settings={settings}
-          cats={cats}
-          txs={txs}
-          onAddCat={addCat}
-          onRenameCat={renameCat}
-          onDeleteCat={deleteCatFromList}
-          onSaveExpenseGroups={async (eg) => { await saveSettings({ expense_groups: eg }); setSettings(s => ({ ...s, expense_groups: eg })) }}
-        />}
+          {/* Panel content */}
+          <div style={S.content}>
+            {activePanel === 'main' && (
+              <>
+                <DashTab
+                  expenseTxs={expenseTxs}
+                  totalUSD={totalUSD} totalARS={totalARS}
+                  perMonthUSD={perMonthUSD} perMonthARS={perMonthARS}
+                  periodMonths={periodMonths}
+                  monthlyStackedChart={monthlyStackedChart}
+                  catChart={catChart}
+                  dashGroupStats={dashGroupStats}
+                  lastTxDate={lastTxDate}
+                  totalesData={totalesData}
+                  badge={badge}
+                  onMonthClick={goToMonth}
+                  onCatClick={goToCat}
+                />
+                <div style={{ padding: '0 0 8px', margin: '8px 0 0' }}>
+                  <h2 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: dark ? '#e0e0e0' : '#1a1a2e', padding: '0 4px' }}>
+                    Transacciones
+                  </h2>
+                  <TxsTab txs={filtered} onUpdate={updateTx} onDelete={deleteTx} onBulkDelete={bulkDeleteTxs} onBulkUpdate={bulkUpdateTxs} onAdd={addTx} badge={badge} cats={cats} />
+                </div>
+              </>
+            )}
+            {activePanel === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
+            {activePanel === 'duplicados' && <DuplicadosTab txs={txs} onDelete={bulkDeleteTxs} />}
+            {activePanel === 'upwork' && <UpworkStagingTab onImport={imported => setTxs(prev => [...imported, ...prev.filter(t => !imported.find(i => i.id === t.id))])} />}
+            {activePanel === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
+            {activePanel === 'settings' && <SettingsTab
+              settings={settings}
+              cats={cats}
+              txs={txs}
+              onAddCat={addCat}
+              onRenameCat={renameCat}
+              onDeleteCat={deleteCatFromList}
+              onSaveExpenseGroups={async (eg) => { await saveSettings({ expense_groups: eg }); setSettings(s => ({ ...s, expense_groups: eg })) }}
+            />}
+          </div>
+        </div>
       </div>
+
     </div>
     </ThemeCtx.Provider>
   )
@@ -701,6 +761,8 @@ const SCATTER_COLORS = ['#e74c3c', '#3498db', '#f39c12', '#27ae60', '#9b59b6', '
 function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, periodMonths, monthlyStackedChart, catChart, dashGroupStats, lastTxDate, totalesData, badge, onMonthClick, onCatClick }) {
   const dark = useTheme()
   const S = makeS(dark)
+  const [chartsOpen, setChartsOpen] = useState(false)
+  const [porCatOpen, setPorCatOpen] = useState(false)
   const [showScatter, setShowScatter] = useState(false)
 
   const scatterData = useMemo(() => {
@@ -756,139 +818,165 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
         ))}
       </div>
 
-      {/* Stacked monthly bar chart */}
-      {monthlyStackedChart.data.length > 0 && (
-        <div style={S.card}>
-          <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
-          <p style={{ margin: '0 0 12px', fontSize: 11, color: '#aaa' }}>Click en una barra para ver las transacciones de ese mes</p>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-              <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              {monthlyStackedChart.cats.map(cat => (
-                <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat}
-                  style={{ cursor: 'pointer' }}
-                  onClick={(data) => { if (data?.ym) onMonthClick(data.ym) }} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Horizontal bar + pie side by side */}
-      {catChart.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ ...S.card, flex: 2, minWidth: 300, marginBottom: 0 }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
-            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
-                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
-                <Tooltip formatter={(v) => fmtUSD(v)} />
-                <Bar dataKey="usd" radius={[0, 3, 3, 0]} name="USD"
-                  style={{ cursor: 'pointer' }}
-                  onClick={(data) => { if (data?.cat) onCatClick(data.cat) }}>
-                  {catChart.map(entry => <Cell key={entry.cat} fill={catColor(entry.cat, 0.82)} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ ...S.card, flex: 1, minWidth: 280, marginBottom: 0 }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
-            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={catChart}
-                  dataKey="usd"
-                  nameKey="cat"
-                  cx="50%" cy="50%"
-                  outerRadius="65%"
-                  label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
-                  labelLine={false}
-                >
-                  {catChart.map((entry) => (
-                    <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => onCatClick(entry.cat)} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => fmtUSD(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Scatter — collapsible */}
+      {/* Collapsible charts section */}
       <div style={S.card}>
         <button
-          onClick={() => setShowScatter(s => !s)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#555', fontWeight: 600, padding: 0 }}
+          onClick={() => setChartsOpen(o => !o)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
+                   color: dark ? '#e0e0e0' : '#555', fontWeight: 600, padding: 0,
+                   display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left' }}
         >
-          {showScatter ? '▼' : '▶'} Scatter de gastos individuales
+          <span style={{ display: 'inline-block', transition: 'transform .15s', transform: chartsOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
+          Gráficos
         </button>
-        {showScatter && scatterSeries.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <ResponsiveContainer width="100%" height={300}>
-              <ScatterChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="x" type="number" domain={['auto', 'auto']} scale="time"
-                  tick={{ fontSize: 10 }} tickFormatter={v => new Date(v).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })}
-                  name="Fecha"
-                />
-                <YAxis dataKey="y" type="number" tick={{ fontSize: 10 }} tickFormatter={fmtK} name="USD" />
-                <ZAxis range={[20, 20]} />
-                <Tooltip
-                  cursor={{ strokeDasharray: '3 3' }}
-                  content={({ payload }) => {
-                    if (!payload?.length) return null
-                    const pt = payload[0]?.payload
-                    return <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '6px 10px', fontSize: 12 }}>{pt.label}</div>
-                  }}
-                />
-                <Legend />
-                {scatterSeries.map(s => (
-                  <Scatter key={s.name} name={s.name} data={s.data} fill={s.color} fillOpacity={0.65} />
-                ))}
-              </ScatterChart>
-            </ResponsiveContainer>
+        {chartsOpen && (
+          <div style={{ marginTop: 16 }}>
+            {/* Stacked monthly bar */}
+            {monthlyStackedChart.data.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Gastos por mes (USD)</h3>
+                <p style={{ margin: '0 0 12px', fontSize: 11, color: '#aaa' }}>Click en una barra para ver las transacciones de ese mes</p>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={monthlyStackedChart.data} margin={{ top: 4, right: 16, left: 0, bottom: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtK} />
+                    <Tooltip formatter={(v, name) => [fmtUSD(v), name]} contentStyle={{ fontSize: 12 }} />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    {monthlyStackedChart.cats.map(cat => (
+                      <Bar key={cat} dataKey={cat} stackId="stack" fill={catColor(cat, 0.82)} name={cat}
+                        style={{ cursor: 'pointer' }}
+                        onClick={(data) => { if (data?.ym) onMonthClick(data.ym) }} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {/* Horizontal bar + pie side by side */}
+            {catChart.length > 0 && (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div style={{ ...S.card, flex: 2, minWidth: 300, marginBottom: 0 }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Top 12 categorías (USD)</h3>
+                  <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={catChart} layout="vertical" margin={{ top: 4, right: 60, left: 110, bottom: 4 }}>
+                      <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
+                      <YAxis type="category" dataKey="cat" tick={{ fontSize: 11 }} width={106} />
+                      <Tooltip formatter={(v) => fmtUSD(v)} />
+                      <Bar dataKey="usd" radius={[0, 3, 3, 0]} name="USD"
+                        style={{ cursor: 'pointer' }}
+                        onClick={(data) => { if (data?.cat) onCatClick(data.cat) }}>
+                        {catChart.map(entry => <Cell key={entry.cat} fill={catColor(entry.cat, 0.82)} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ ...S.card, flex: 1, minWidth: 280, marginBottom: 0 }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Distribución por categoría</h3>
+                  <p style={{ margin: '0 0 8px', fontSize: 11, color: '#aaa' }}>Click para filtrar por categoría</p>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={catChart}
+                        dataKey="usd"
+                        nameKey="cat"
+                        cx="50%" cy="50%"
+                        outerRadius="65%"
+                        label={({ cat, percent }) => percent > 0.04 ? `${cat.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}
+                        labelLine={false}
+                      >
+                        {catChart.map((entry) => (
+                          <Cell key={entry.cat} fill={catColor(entry.cat, 0.75)}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => onCatClick(entry.cat)} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v) => fmtUSD(v)} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+            {/* Scatter sub-toggle */}
+            <div>
+              <button
+                onClick={() => setShowScatter(s => !s)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
+                         color: dark ? '#aaa' : '#666', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <span style={{ display: 'inline-block', transition: 'transform .15s', transform: showScatter ? 'rotate(90deg)' : 'none' }}>▶</span>
+                Scatter de gastos individuales
+              </button>
+              {showScatter && scatterSeries.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <ScatterChart margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="x" type="number" domain={['auto', 'auto']} scale="time"
+                        tick={{ fontSize: 10 }} tickFormatter={v => new Date(v).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })}
+                        name="Fecha"
+                      />
+                      <YAxis dataKey="y" type="number" tick={{ fontSize: 10 }} tickFormatter={fmtK} name="USD" />
+                      <ZAxis range={[20, 20]} />
+                      <Tooltip
+                        cursor={{ strokeDasharray: '3 3' }}
+                        content={({ payload }) => {
+                          if (!payload?.length) return null
+                          const pt = payload[0]?.payload
+                          return <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '6px 10px', fontSize: 12 }}>{pt.label}</div>
+                        }}
+                      />
+                      <Legend />
+                      {scatterSeries.map(s => (
+                        <Scatter key={s.name} name={s.name} data={s.data} fill={s.color} fillOpacity={0.65} />
+                      ))}
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Totales table — merged in */}
+      {/* Collapsible Por categoría */}
       <div style={S.card}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 14, color: '#555' }}>Por categoría</h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={S.table}>
-            <thead>
-              <tr>
-                <th style={S.th}>Categoría</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>Txs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totalesData.map(row => (
-                <tr key={row.cat}>
-                  <td style={S.td}><span style={{ ...badge(row.cat), cursor: 'pointer' }} onClick={() => onCatClick(row.cat)}>{row.cat}</span></td>
-                  <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
-                  <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
-                  <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
+        <button
+          onClick={() => setPorCatOpen(o => !o)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
+                   color: dark ? '#e0e0e0' : '#555', fontWeight: 600, padding: 0,
+                   display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left' }}
+        >
+          <span style={{ display: 'inline-block', transition: 'transform .15s', transform: porCatOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
+          Por categoría
+        </button>
+        {porCatOpen && (
+          <div style={{ marginTop: 12, overflowX: 'auto' }}>
+            <table style={S.table}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Categoría</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
+                  <th style={{ ...S.th, textAlign: 'right' }}>Txs</th>
                 </tr>
-              ))}
-              {totalesData.length === 0 && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Sin datos</td></tr>}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {totalesData.map(row => (
+                  <tr key={row.cat}>
+                    <td style={S.td}><span style={{ ...badge(row.cat), cursor: 'pointer' }} onClick={() => onCatClick(row.cat)}>{row.cat}</span></td>
+                    <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
+                    <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
+                    <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
+                  </tr>
+                ))}
+                {totalesData.length === 0 && <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Sin datos</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1173,152 +1261,6 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
           </button>
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── Revisar ──────────────────────────────────────────────────────────────────
-
-function RevisarTab({ txs, setTxs, badge, cats }) {
-  const dark = useTheme()
-  const S = makeS(dark)
-  const queue = txs.filter(t => t.needs_review && !t.deleted_at)
-
-  const confirmTx = async (tx, cat) => {
-    await updateTransaction(tx.id, { cat, needs_review: false, ai_assigned: false })
-    setTxs(prev => prev.map(t => t.id === tx.id ? { ...t, cat, needs_review: false } : t))
-  }
-
-  const deleteTx = async (id) => {
-    if (!window.confirm('¿Ocultar esta transacción? (soft delete)')) return
-    await softDeleteTransaction(id)
-    setTxs(prev => prev.filter(t => t.id !== id))
-  }
-
-  const deleteAllEmpty = async () => {
-    const empty = queue.filter(t => !t.merchant && !t.raw_desc)
-    if (!empty.length) return
-    if (!window.confirm(`¿Eliminar ${empty.length} transacciones vacías?`)) return
-    for (const t of empty) await softDeleteTransaction(t.id)
-    setTxs(prev => prev.filter(t => !empty.find(e => e.id === t.id)))
-  }
-
-  const emptyCount = queue.filter(t => !t.merchant && !t.raw_desc).length
-
-  if (!queue.length) return (
-    <div style={{ ...S.card, textAlign: 'center', padding: 40, color: '#888' }}>
-      ✅ Sin transacciones pendientes de revisión.
-    </div>
-  )
-
-  return (
-    <div style={S.card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{queue.length} transacciones por revisar</h3>
-        {emptyCount > 0 && (
-          <button style={S.btnSm('danger')} onClick={deleteAllEmpty}>
-            🗑 Eliminar {emptyCount} vacías
-          </button>
-        )}
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={S.table}>
-          <thead>
-            <tr>
-              <th style={S.th}>Fecha</th>
-              <th style={S.th}>Comercio / Descripción</th>
-              <th style={S.th}>Sugerencia AI</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>ARS</th>
-              <th style={S.th}>Confirmar / Corregir</th>
-              <th style={{ ...S.th, width: 40 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {queue.map(tx => (
-              <tr key={tx.id}>
-                <td style={{ ...S.td, color: '#888', fontSize: 12 }}>{fmtDate(tx.date)}</td>
-                <td style={{ ...S.td, maxWidth: 280 }}>
-                  {tx.merchant && <div style={{ fontWeight: 600, fontSize: 13 }}>{tx.merchant}</div>}
-                  {tx.raw_desc && <div style={{ fontSize: 12, color: tx.merchant ? (dark ? '#8a8aaa' : '#666') : 'inherit', fontWeight: tx.merchant ? 400 : 500, marginTop: tx.merchant ? 2 : 0 }}>{tx.raw_desc}</div>}
-                  {tx.referencia && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{tx.referencia}</div>}
-                </td>
-                <td style={S.td}>
-                  {tx.cat ? <span style={badge(tx.cat)}>{tx.cat}</span> : <span style={{ color: '#aaa' }}>—</span>}
-                  {tx.ai_confidence != null && <span style={{ fontSize: 10, color: '#888', marginLeft: 4 }}>{Math.round(tx.ai_confidence * 100)}%</span>}
-                </td>
-                <td style={{ ...S.td, textAlign: 'right', ...(tx.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(tx.ars)}</td>
-                <td style={S.td}>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {tx.cat && <button style={S.btn()} onClick={() => confirmTx(tx, tx.cat)}>✓ Confirmar</button>}
-                    <select defaultValue="" onChange={e => { if (e.target.value) confirmTx(tx, e.target.value) }} style={{ ...S.select, fontSize: 12 }}>
-                      <option value="">Corregir…</option>
-                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                </td>
-                <td style={S.td}>
-                  <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#e74c3c', fontSize: 15, padding: '0 2px' }}
-                    onClick={() => deleteTx(tx.id)} title="Eliminar">🗑</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ─── Presupuesto ──────────────────────────────────────────────────────────────
-
-// ─── Historial IA ─────────────────────────────────────────────────────────────
-
-function AuditoriaTab({ badge }) {
-  const dark = useTheme()
-  const S = makeS(dark)
-  const [log, setLog] = useState(null)
-  const [loading, setLoading] = useState(true)
-  useEffect(() => { loadCatLog({ limit: 500 }).then(d => { setLog(d); setLoading(false) }) }, [])
-  if (loading) return <div style={{ padding: 32, color: '#888' }}>Cargando log…</div>
-
-  return (
-    <div style={S.card}>
-      <h3 style={{ margin: '0 0 4px', fontSize: 14, color: '#555' }}>Historial IA ({log?.length ?? 0} entradas)</h3>
-      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#aaa' }}>
-        Registra cada decisión de categorización: asignaciones automáticas, confirmaciones manuales y correcciones.
-      </p>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={S.table}>
-          <thead>
-            <tr>
-              <th style={S.th}>Fecha</th>
-              <th style={S.th}>Tx ID</th>
-              <th style={S.th}>Acción</th>
-              <th style={S.th}>Categoría</th>
-              <th style={S.th}>Confianza</th>
-              <th style={S.th}>Tokens</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(log || []).map(row => (
-              <tr key={row.id}>
-                <td style={{ ...S.td, fontSize: 11, color: '#888' }}>{row.created_at?.slice(0, 16)}</td>
-                <td style={{ ...S.td, fontSize: 11, color: '#aaa' }}>{row.tx_id}</td>
-                <td style={S.td}><span style={badge(row.action)}>{row.action}</span></td>
-                <td style={{ ...S.td, fontSize: 12 }}>
-                  {row.cat_before && <span style={{ color: '#888' }}>{row.cat_before}</span>}
-                  {row.cat_before && row.cat_after && <span style={{ margin: '0 4px' }}>→</span>}
-                  {row.cat_after && <strong>{row.cat_after}</strong>}
-                  {row.note && <div style={{ fontSize: 11, color: '#aaa' }}>{row.note}</div>}
-                </td>
-                <td style={{ ...S.td, fontSize: 12, color: '#888' }}>{row.confidence != null ? `${Math.round(row.confidence * 100)}%` : '—'}</td>
-                <td style={{ ...S.td, fontSize: 11, color: '#aaa' }}>{row.prompt_tokens != null ? `${row.prompt_tokens}+${row.completion_tokens}` : '—'}</td>
-              </tr>
-            ))}
-            {(!log || !log.length) && <tr><td colSpan={6} style={{ ...S.td, textAlign: 'center', color: '#aaa' }}>Sin entradas aún</td></tr>}
-          </tbody>
-        </table>
-      </div>
     </div>
   )
 }
