@@ -13,6 +13,7 @@ import {
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadBlueRates,
   loadDeletedTransactions, restoreTransaction,
   loadUpworkStaging, updateUpworkStagingCat, importUpworkRows, deleteUpworkStagingRows,
+  loadMintStaging, updateMintStagingCat, deleteMintStagingRows, importMintRows,
 } from './db.js'
 
 const ThemeCtx = createContext(false)
@@ -224,6 +225,7 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 const SIDEBAR_ITEMS = [
+  { id: 'mint',       icon: '🏦',  label: 'Mint'       },
   { id: 'papelera',   icon: '🗑',  label: 'Papelera'   },
   { id: 'duplicados', icon: '📋',  label: 'Duplicados' },
   { id: 'ml',         icon: '📦',  label: 'ML Import'  },
@@ -295,14 +297,14 @@ export default function Finanzas({ session, onLogout }) {
   const [loadErr, setLoadErr] = useState(null)
   const [activePanel, setActivePanel] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork']
+    const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork', 'mint']
     return valid.includes(hash) ? hash : 'main'
   })
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace(/^#\/?/, '')
-      const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork']
+      const valid = ['main', 'settings', 'ml', 'duplicados', 'papelera', 'upwork', 'mint']
       setActivePanel(valid.includes(hash) ? hash : 'main')
     }
     window.addEventListener('hashchange', onHashChange)
@@ -735,6 +737,7 @@ export default function Finanzas({ session, onLogout }) {
             {activePanel === 'ml' && <MLImportTab onImport={txs => setTxs(prev => [...txs, ...prev])} />}
             {activePanel === 'duplicados' && <DuplicadosTab txs={txs} onDelete={bulkDeleteTxs} />}
             {activePanel === 'upwork' && <UpworkStagingTab onImport={imported => setTxs(prev => [...imported, ...prev.filter(t => !imported.find(i => i.id === t.id))])} />}
+            {activePanel === 'mint' && <MintStagingTab onImport={imported => setTxs(prev => [...imported, ...prev.filter(t => !imported.find(i => i.id === t.id))])} />}
             {activePanel === 'papelera' && <PapeleraTab onRestore={id => setTxs(prev => prev.map(t => t.id === id ? { ...t, deleted_at: null } : t))} />}
             {activePanel === 'settings' && <SettingsTab
               settings={settings}
@@ -1742,6 +1745,276 @@ function UpworkStagingTab({ onImport }) {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Mint Staging ────────────────────────────────────────────────────────────
+
+function MintStagingTab({ onImport }) {
+  const dark = useTheme()
+  const S = makeS(dark)
+  const muted = dark ? '#8a8aaa' : '#888'
+  const green = dark ? '#4ade80' : '#16a34a'
+  const red   = dark ? '#f87171' : '#dc2626'
+
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')   // 'all' | 'uncat' | 'sel' | 'xfer'
+  const [yearFilter, setYearFilter] = useState('')
+  const [bankFilter, setBankFilter] = useState('')
+  const [dirFilter, setDirFilter] = useState('')  // '' | 'exp' | 'inc'
+  const [importing, setImporting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [bulkCat, setBulkCat] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    loadMintStaging()
+      .then(data => { setRows(data); setLoading(false) })
+      .catch(e => { setErr(e.message); setLoading(false) })
+  }, [])
+
+  const setCat = async (id, cat) => {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, cat } : r))
+    try { await updateMintStagingCat(id, cat) } catch (e) { setMsg({ error: true, text: 'Error saving: ' + e.message }) }
+  }
+
+  const applyBulkCat = async () => {
+    if (!bulkCat || selected.size === 0) return
+    const ids = [...selected]
+    setRows(prev => prev.map(r => ids.includes(r.id) ? { ...r, cat: bulkCat } : r))
+    try {
+      await Promise.all(ids.map(id => updateMintStagingCat(id, bulkCat)))
+      setMsg({ error: false, text: `✓ "${bulkCat}" aplicado a ${ids.length} filas.` })
+    } catch (e) { setMsg({ error: true, text: 'Error: ' + e.message }) }
+  }
+
+  const doDelete = async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`¿Eliminar ${selected.size} fila(s) del staging? Esto no afecta el DB principal.`)) return
+    setDeleting(true)
+    try {
+      await deleteMintStagingRows([...selected])
+      setRows(prev => prev.filter(r => !selected.has(r.id)))
+      setSelected(new Set())
+      setMsg({ error: false, text: '✓ Eliminadas del staging.' })
+    } catch (e) { setMsg({ error: true, text: 'Error: ' + e.message }) }
+    setDeleting(false)
+  }
+
+  const years = useMemo(() => [...new Set(rows.map(r => r.date?.slice(0, 4)))].filter(Boolean).sort().reverse(), [rows])
+  const banks = useMemo(() => [...new Set(rows.map(r => r.bank))].filter(Boolean).sort(), [rows])
+
+  const visible = useMemo(() => {
+    let out = rows
+    if (yearFilter) out = out.filter(r => r.date?.startsWith(yearFilter))
+    if (bankFilter) out = out.filter(r => r.bank === bankFilter)
+    if (dirFilter === 'exp') out = out.filter(r => r.usd < 0)
+    if (dirFilter === 'inc') out = out.filter(r => r.usd > 0)
+    if (filter === 'uncat') out = out.filter(r => !r.cat)
+    if (filter === 'xfer')  out = out.filter(r => r.xfer)
+    if (filter === 'sel')   out = out.filter(r => selected.has(r.id))
+    if (search) {
+      const q = search.toLowerCase()
+      out = out.filter(r =>
+        (r.raw_desc || '').toLowerCase().includes(q) ||
+        (r.merchant || '').toLowerCase().includes(q) ||
+        (r.cat || '').toLowerCase().includes(q) ||
+        (r.mint_cat || '').toLowerCase().includes(q) ||
+        (r.account_name || '').toLowerCase().includes(q)
+      )
+    }
+    return out
+  }, [rows, search, filter, selected, yearFilter, bankFilter, dirFilter])
+
+  const toggleRow = id => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  const allVisibleSelected = visible.length > 0 && visible.every(r => selected.has(r.id))
+  const toggleAll = () => {
+    if (allVisibleSelected) setSelected(prev => { const s = new Set(prev); visible.forEach(r => s.delete(r.id)); return s })
+    else setSelected(prev => { const s = new Set(prev); visible.forEach(r => s.add(r.id)); return s })
+  }
+
+  const selectedRows = rows.filter(r => selected.has(r.id))
+  const selectedTotal = selectedRows.reduce((s, r) => s + parseFloat(r.usd || 0), 0)
+  const selectedUncat = selectedRows.filter(r => !r.cat && !r.xfer).length
+  const uncatTotal = rows.filter(r => !r.cat && !r.xfer).length
+
+  const doImport = async () => {
+    if (selectedUncat > 0) {
+      setMsg({ error: true, text: `${selectedUncat} fila(s) sin categoría. Asigná categorías antes de importar (las transferencias pueden importarse sin categoría).` })
+      return
+    }
+    setImporting(true)
+    setMsg(null)
+    try {
+      const { imported } = await importMintRows(selectedRows)
+      setMsg({ error: false, text: `✓ ${imported} transacciones importadas al DB.` })
+      const txObjs = selectedRows.map(r => ({
+        id: r.id, date: r.date, cat: r.cat || null, bank: r.bank,
+        usd: parseFloat(r.usd), raw_desc: r.raw_desc || null, merchant: r.merchant || null,
+        xfer: r.xfer || false, deleted_at: null, needs_review: false,
+      }))
+      setSelected(new Set())
+      if (onImport) onImport(txObjs)
+    } catch (e) {
+      setMsg({ error: true, text: 'Error: ' + e.message })
+    }
+    setImporting(false)
+  }
+
+  if (loading) return <div style={{ padding: 32, color: muted }}>Cargando staging de Mint…</div>
+  if (err)     return <div style={{ padding: 32, color: red }}>Error: {err}</div>
+
+  const btnBase = { padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+  const selBase = { fontSize: 12, padding: '3px 8px', borderRadius: 6, border: `1px solid ${dark ? '#3a3a5e' : '#bbb'}`,
+    background: dark ? '#12121f' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e', cursor: 'pointer' }
+
+  return (
+    <div style={{ padding: '16px 20px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>🏦 Mint Staging</h2>
+        <span style={{ fontSize: 13, color: muted }}>{rows.length} transacciones · {uncatTotal} sin categoría</span>
+        <div style={{ flex: 1 }} />
+        {msg && (
+          <span style={{ fontSize: 13, color: msg.error ? red : green, padding: '4px 10px', borderRadius: 6,
+            background: msg.error ? (dark ? '#3b0f0f' : '#fee2e2') : (dark ? '#0a2e1a' : '#dcfce7') }}>
+            {msg.text} <button onClick={() => setMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>×</button>
+          </span>
+        )}
+      </div>
+
+      {/* Filter row */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar descripción / merchant / categoría…"
+          style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${dark ? '#2a2a3e' : '#ddd'}`,
+            background: dark ? '#12121f' : '#fff', color: dark ? '#e0e0e0' : '#1a1a2e', fontSize: 13, minWidth: 240 }}
+        />
+        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} style={selBase}>
+          <option value="">Todos los años</option>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <select value={bankFilter} onChange={e => setBankFilter(e.target.value)} style={selBase}>
+          <option value="">Todos los bancos</option>
+          {banks.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={dirFilter} onChange={e => setDirFilter(e.target.value)} style={selBase}>
+          <option value="">Gastos + ingresos</option>
+          <option value="exp">Solo gastos</option>
+          <option value="inc">Solo ingresos</option>
+        </select>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        {['all', 'uncat', 'xfer', 'sel'].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...btnBase, background: filter === f ? '#5555cc' : (dark ? '#1a1a2e' : '#eee'),
+              color: filter === f ? '#fff' : (dark ? '#ccc' : '#444') }}>
+            {f === 'all' ? `Todos (${rows.length})` : f === 'uncat' ? `Sin cat. (${uncatTotal})` : f === 'xfer' ? `Transfers (${rows.filter(r => r.xfer).length})` : `Selec. (${selected.size})`}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {selected.size > 0 && (
+          <span style={{ fontSize: 13, color: muted }}>
+            {selected.size} sel · <strong style={{ color: selectedTotal >= 0 ? green : red }}>${Math.abs(selectedTotal).toFixed(2)}</strong>
+          </span>
+        )}
+        <button
+          onClick={doImport} disabled={importing || selected.size === 0}
+          style={{ ...btnBase, background: selected.size > 0 ? '#5555cc' : (dark ? '#2a2a3e' : '#ddd'),
+            color: selected.size > 0 ? '#fff' : muted, opacity: importing ? 0.6 : 1 }}>
+          {importing ? '⏳ Importando…' : `⬆ Importar ${selected.size > 0 ? selected.size : ''} al DB`}
+        </button>
+        <button
+          onClick={doDelete} disabled={deleting || selected.size === 0}
+          style={{ ...btnBase, background: selected.size > 0 ? (dark ? '#3b0f0f' : '#fee2e2') : (dark ? '#2a2a3e' : '#ddd'),
+            color: selected.size > 0 ? red : muted, opacity: deleting ? 0.6 : 1 }}>
+          {deleting ? '⏳' : `🗑 Eliminar ${selected.size > 0 ? selected.size : ''}`}
+        </button>
+      </div>
+
+      {/* Bulk category */}
+      {selected.size > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, padding: '6px 10px',
+          background: dark ? '#1a1a2e' : '#f0f0ff', borderRadius: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: muted }}>Categorizar {selected.size} seleccionados:</span>
+          <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
+            style={{ ...selBase }}>
+            <option value="">— elegir categoría —</option>
+            {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <button onClick={applyBulkCat} disabled={!bulkCat}
+            style={{ ...btnBase, padding: '3px 12px', fontSize: 12,
+              background: bulkCat ? '#5555cc' : (dark ? '#2a2a3e' : '#ddd'),
+              color: bulkCat ? '#fff' : muted }}>
+            Aplicar
+          </button>
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ ...S.table, fontSize: 12, width: '100%' }}>
+          <thead>
+            <tr>
+              <th style={{ ...S.th, width: 32 }}>
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
+              </th>
+              <th style={S.th}>Fecha</th>
+              <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
+              <th style={S.th}>Banco</th>
+              <th style={S.th}>Cuenta</th>
+              <th style={{ ...S.th, minWidth: 220 }}>Descripción</th>
+              <th style={S.th}>Mint cat.</th>
+              <th style={{ ...S.th, minWidth: 160 }}>Categoría</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(r => {
+              const isSelected = selected.has(r.id)
+              const usd = parseFloat(r.usd || 0)
+              return (
+                <tr key={r.id} onClick={() => toggleRow(r.id)}
+                  style={{ background: isSelected ? (dark ? '#1a1a4e' : '#ebebff') : 'transparent', cursor: 'pointer' }}>
+                  <td style={{ ...S.td, width: 32 }}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleRow(r.id)} onClick={e => e.stopPropagation()} />
+                  </td>
+                  <td style={S.td}>{r.date}</td>
+                  <td style={{ ...S.td, textAlign: 'right', color: usd >= 0 ? green : red, fontWeight: 600 }}>
+                    {usd >= 0 ? '+' : ''}{usd.toFixed(2)}
+                  </td>
+                  <td style={{ ...S.td, color: muted }}>{r.bank}</td>
+                  <td style={{ ...S.td, color: muted, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={r.account_name}>{r.account_name}</td>
+                  <td style={{ ...S.td, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={r.raw_desc}>
+                    {r.xfer && <span style={{ marginRight: 4, fontSize: 10, color: muted }}>🔄</span>}
+                    {r.merchant || r.raw_desc}
+                  </td>
+                  <td style={{ ...S.td, color: muted, fontSize: 11 }}>{r.mint_cat || ''}</td>
+                  <td style={S.td} onClick={e => e.stopPropagation()}>
+                    <select value={r.cat || ''} onChange={e => setCat(r.id, e.target.value)}
+                      style={{ ...selBase, width: '100%' }}>
+                      <option value="">— sin categoría —</option>
+                      {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {visible.length === 0 && (
+          <div style={{ padding: 32, textAlign: 'center', color: muted }}>No hay filas que coincidan con los filtros.</div>
+        )}
       </div>
     </div>
   )

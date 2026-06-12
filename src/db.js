@@ -316,6 +316,75 @@ export async function importUpworkRows(rows) {
 }
 
 // ---------------------------------------------------------------------------
+// Mint staging
+// ---------------------------------------------------------------------------
+
+export async function loadMintStaging() {
+  const PAGE = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('mint_staging')
+      .select('*')
+      .order('date', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
+export async function updateMintStagingCat(id, cat) {
+  const { error } = await supabase
+    .from('mint_staging')
+    .update({ cat })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteMintStagingRows(ids) {
+  const CHUNK = 200
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('mint_staging')
+      .delete()
+      .in('id', ids.slice(i, i + CHUNK))
+    if (error) throw error
+  }
+}
+
+export async function importMintRows(rows) {
+  const { data: { user }, error: uErr } = await supabase.auth.getUser()
+  if (uErr) throw uErr
+
+  const txs = rows.map(r => ({
+    id: r.id,
+    user_id: user.id,
+    date: r.date,
+    cat: r.cat || null,
+    bank: r.bank,
+    usd: r.usd,
+    raw_desc: r.raw_desc || null,
+    merchant: r.merchant || null,
+    xfer: r.xfer || false,
+    needs_review: false,
+  }))
+
+  const CHUNK = 200
+  for (let i = 0; i < txs.length; i += CHUNK) {
+    const { error } = await supabase
+      .from('transactions')
+      .upsert(txs.slice(i, i + CHUNK), { onConflict: 'id' })
+    if (error) throw error
+  }
+
+  return { imported: txs.length }
+}
+
+// ---------------------------------------------------------------------------
 // Review queue
 // ---------------------------------------------------------------------------
 
