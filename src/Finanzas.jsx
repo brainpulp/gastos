@@ -1772,6 +1772,14 @@ function MintStagingTab({ onImport }) {
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState(null)
   const [bulkCat, setBulkCat] = useState('')
+  const [sortCol, setSortCol] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+
+  const toggleSort = col => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+  const sortArrow = col => sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
 
   useEffect(() => {
     setLoading(true)
@@ -1830,8 +1838,21 @@ function MintStagingTab({ onImport }) {
         (r.account_name || '').toLowerCase().includes(q)
       )
     }
+    out = [...out].sort((a, b) => {
+      let av, bv
+      if (sortCol === 'date')     { av = a.date || ''; bv = b.date || '' }
+      else if (sortCol === 'usd') { av = parseFloat(a.usd || 0); bv = parseFloat(b.usd || 0) }
+      else if (sortCol === 'bank'){ av = (a.bank || '').toLowerCase(); bv = (b.bank || '').toLowerCase() }
+      else if (sortCol === 'desc'){ av = (a.merchant || a.raw_desc || '').toLowerCase(); bv = (b.merchant || b.raw_desc || '').toLowerCase() }
+      else if (sortCol === 'cat') { av = (a.cat || '').toLowerCase(); bv = (b.cat || '').toLowerCase() }
+      else if (sortCol === 'mint_cat') { av = (a.mint_cat || '').toLowerCase(); bv = (b.mint_cat || '').toLowerCase() }
+      else { av = ''; bv = '' }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
     return out
-  }, [rows, search, filter, selected, yearFilter, bankFilter, dirFilter])
+  }, [rows, search, filter, selected, yearFilter, bankFilter, dirFilter, sortCol, sortDir])
 
   const toggleRow = id => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   const allVisibleSelected = visible.length > 0 && visible.every(r => selected.has(r.id))
@@ -1968,13 +1989,22 @@ function MintStagingTab({ onImport }) {
               <th style={{ ...S.th, width: 32 }}>
                 <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
               </th>
-              <th style={S.th}>Fecha</th>
-              <th style={{ ...S.th, textAlign: 'right' }}>USD</th>
-              <th style={S.th}>Banco</th>
+              {[['date','Fecha'],['usd','USD'],['bank','Banco']].map(([col, label]) => (
+                <th key={col} style={{ ...S.th, cursor: 'pointer', userSelect: 'none',
+                  ...(col === 'usd' ? { textAlign: 'right' } : {}) }}
+                  onClick={() => toggleSort(col)}>
+                  {label}{sortArrow(col)}
+                </th>
+              ))}
               <th style={S.th}>Cuenta</th>
-              <th style={{ ...S.th, minWidth: 220 }}>Descripción</th>
-              <th style={S.th}>Mint cat.</th>
-              <th style={{ ...S.th, minWidth: 160 }}>Categoría</th>
+              {[['desc','Descripción'],['mint_cat','Mint cat.'],['cat','Categoría']].map(([col, label]) => (
+                <th key={col} style={{ ...S.th, cursor: 'pointer', userSelect: 'none',
+                  ...(col === 'desc' ? { minWidth: 220 } : {}),
+                  ...(col === 'cat' ? { minWidth: 160 } : {}) }}
+                  onClick={() => toggleSort(col)}>
+                  {label}{sortArrow(col)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
