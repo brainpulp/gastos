@@ -200,6 +200,7 @@ export async function loadSettings() {
     vendor_hints: {},
     usd_rate: 1050,
     cats: null,
+    pinned_cats: [],
   }
 }
 

@@ -232,7 +232,7 @@ const SIDEBAR_ITEMS = [
   { id: 'upwork',     icon: '🧑‍💻', label: 'Upwork'     },
 ]
 
-function Sidebar({ activePanel, onNavigate }) {
+function Sidebar({ activePanel, onNavigate, pinnedCats = [], pinnedResults = {}, availCats = [], onPin, onUnpin, onPinClick, dateScoped = false }) {
   return (
     <div style={{
       width: 130, minWidth: 130, background: '#12122a', display: 'flex',
@@ -248,7 +248,7 @@ function Sidebar({ activePanel, onNavigate }) {
       </div>
 
       {/* Nav items */}
-      <div style={{ flex: 1, padding: '8px 0' }}>
+      <div style={{ padding: '8px 0' }}>
         {SIDEBAR_ITEMS.map(item => (
           <div
             key={item.id}
@@ -265,6 +265,44 @@ function Sidebar({ activePanel, onNavigate }) {
             <span>{item.label}</span>
           </div>
         ))}
+      </div>
+
+      {/* Pinned category results */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderTop: '1px solid #2a2a4e', padding: '10px 0 4px' }}>
+        <div style={{ padding: '0 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#666' }}>
+          Resultados {dateScoped ? '(período)' : '(total)'}
+        </div>
+        {pinnedCats.length === 0 && (
+          <div style={{ padding: '2px 12px 6px', fontSize: 11, color: '#555', lineHeight: 1.4 }}>
+            Fijá categorías abajo para ver su total ↓
+          </div>
+        )}
+        {pinnedCats.map(cat => {
+          const val = pinnedResults[cat] ?? 0
+          return (
+            <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 6px 4px 12px', margin: '1px 6px', borderRadius: 6 }}>
+              <div onClick={() => onPinClick?.(cat)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} title={`${cat} — ver transacciones`}>
+                <div style={{ fontSize: 11, color: '#999', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: val < 0 ? '#ff7675' : '#55efc4' }}>{fmtUSD(val)}</div>
+              </div>
+              <button
+                onClick={() => onUnpin?.(cat)}
+                title="Quitar"
+                style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+              >×</button>
+            </div>
+          )
+        })}
+        <select
+          value=""
+          onChange={e => { if (e.target.value) { onPin?.(e.target.value); e.target.value = '' } }}
+          style={{ margin: '8px 6px 0', width: 'calc(100% - 12px)', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #2a2a4e', background: '#1a1a2e', color: '#aaa', cursor: 'pointer' }}
+        >
+          <option value="">+ Fijar categoría…</option>
+          {availCats.filter(c => !pinnedCats.includes(c)).map(c => (
+            <option key={c} value={c} style={{ background: '#1a1a2e', color: '#e0e0e0' }}>{c}</option>
+          ))}
+        </select>
       </div>
 
       {/* Config at bottom */}
@@ -526,6 +564,40 @@ export default function Finanzas({ session, onLogout }) {
     setCatFs([cat])
   }
 
+  // Pinned category results (sidebar) — total USD per category, scoped to the
+  // date range filter ONLY (ignores cat/bank/search/amount filters). Excludes xfer.
+  const pinnedCats = useMemo(() => settings?.pinned_cats ?? [], [settings])
+
+  const pinnedResults = useMemo(() => {
+    const map = {}
+    for (const t of txs) {
+      if (t.xfer || !t.cat) continue
+      if (dateFrom && t.date < dateFrom) continue
+      if (dateTo && t.date > dateTo) continue
+      map[t.cat] = (map[t.cat] || 0) + (+t.usd || 0)
+    }
+    return map
+  }, [txs, dateFrom, dateTo])
+
+  const pinCat = async (cat) => {
+    if (!cat || pinnedCats.includes(cat)) return
+    const next = [...pinnedCats, cat]
+    setSettings(s => ({ ...s, pinned_cats: next }))
+    await saveSettings({ pinned_cats: next })
+  }
+
+  const unpinCat = async (cat) => {
+    const next = pinnedCats.filter(c => c !== cat)
+    setSettings(s => ({ ...s, pinned_cats: next }))
+    await saveSettings({ pinned_cats: next })
+  }
+
+  const goToCatFromSidebar = (cat) => {
+    goToCat(cat)
+    setActivePanel('main')
+    window.location.hash = 'main'
+  }
+
   const cats = useMemo(
     () => settings?.cats ?? CATS,
     [settings]
@@ -629,7 +701,18 @@ export default function Finanzas({ session, onLogout }) {
 
       {/* Body: sidebar + content */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <Sidebar activePanel={activePanel} onNavigate={id => { setActivePanel(id); window.location.hash = id }} dark={dark} />
+        <Sidebar
+          activePanel={activePanel}
+          onNavigate={id => { setActivePanel(id); window.location.hash = id }}
+          dark={dark}
+          pinnedCats={pinnedCats}
+          pinnedResults={pinnedResults}
+          availCats={availCats}
+          onPin={pinCat}
+          onUnpin={unpinCat}
+          onPinClick={goToCatFromSidebar}
+          dateScoped={!!(dateFrom || dateTo)}
+        />
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {/* Filter bar — only in main view */}
