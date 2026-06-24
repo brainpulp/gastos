@@ -80,6 +80,23 @@ const fmtUSD = (n) => {
 }
 const fmtK = (n) => (Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(Math.round(n)))
 
+// Resolve a sidebar "Mensual" preset to a {from, to, months} window.
+// months is the divisor for the average; null = use distinct active months (for 'all').
+function presetWindow(range) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth() // 0-based
+  const pad = (n) => String(n).padStart(2, '0')
+  const today = `${y}-${pad(m + 1)}-${pad(now.getDate())}`
+  if (range === 'all') return { from: null, to: null, months: null }
+  if (range === 'thisyear') return { from: `${y}-01-01`, to: today, months: m + 1 }
+  const n = range === 'last6' ? 6 : range === 'last3' ? 3 : 12
+  const startIdx = (y * 12 + m) - (n - 1)
+  const sy = Math.floor(startIdx / 12)
+  const sm = startIdx % 12
+  return { from: `${sy}-${pad(sm + 1)}-01`, to: today, months: n }
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 function makeS(dark) {
@@ -232,7 +249,19 @@ const SIDEBAR_ITEMS = [
   { id: 'upwork',     icon: '🧑‍💻', label: 'Upwork'     },
 ]
 
-function Sidebar({ activePanel, onNavigate, pinnedCats = [], pinnedResults = {}, availCats = [], onPin, onUnpin, onPinClick, dateScoped = false }) {
+const GROUP_RANGES = [
+  { id: 'last12',   label: 'Últimos 12 meses' },
+  { id: 'last6',    label: 'Últimos 6 meses' },
+  { id: 'last3',    label: 'Últimos 3 meses' },
+  { id: 'thisyear', label: 'Este año' },
+  { id: 'all',      label: 'Todo' },
+]
+
+function Sidebar({
+  activePanel, onNavigate, pinnedCats = [], pinnedResults = {}, availCats = [],
+  onPin, onUnpin, onPinClick, dateScoped = false,
+  pinnedGroupStats = [], availGroups = [], onPinGroup, onUnpinGroup, onSetGroupRange, onGroupClick,
+}) {
   return (
     <div style={{
       width: 130, minWidth: 130, background: '#12122a', display: 'flex',
@@ -267,10 +296,12 @@ function Sidebar({ activePanel, onNavigate, pinnedCats = [], pinnedResults = {},
         ))}
       </div>
 
+      {/* Scrollable pinned area: Resultados (categories) + Mensual (groups) */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderTop: '1px solid #2a2a4e' }}>
       {/* Pinned category results */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderTop: '1px solid #2a2a4e', padding: '10px 0 4px' }}>
+      <div style={{ padding: '10px 0 4px' }}>
         <div style={{ padding: '0 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#666' }}>
-          Resultados {dateScoped ? '(período)' : '(total)'}
+          Resultados {dateScoped ? '(filtro)' : '(total)'}
         </div>
         {pinnedCats.length === 0 && (
           <div style={{ padding: '2px 12px 6px', fontSize: 11, color: '#555', lineHeight: 1.4 }}>
@@ -303,6 +334,60 @@ function Sidebar({ activePanel, onNavigate, pinnedCats = [], pinnedResults = {},
             <option key={c} value={c} style={{ background: '#1a1a2e', color: '#e0e0e0' }}>{c}</option>
           ))}
         </select>
+      </div>
+
+      {/* Monthly averages by group */}
+      <div style={{ padding: '8px 0 4px', borderTop: '1px solid #2a2a4e' }}>
+        <div style={{ padding: '0 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#666' }}>
+          Mensual (prom.)
+        </div>
+        {availGroups.length === 0 && (
+          <div style={{ padding: '2px 12px 6px', fontSize: 11, color: '#555', lineHeight: 1.4 }}>
+            Creá grupos en ⚙ Config
+          </div>
+        )}
+        {availGroups.length > 0 && pinnedGroupStats.length === 0 && (
+          <div style={{ padding: '2px 12px 6px', fontSize: 11, color: '#555', lineHeight: 1.4 }}>
+            Fijá un grupo abajo para ver su promedio mensual ↓
+          </div>
+        )}
+        {pinnedGroupStats.map(g => (
+          <div key={g.id} style={{ padding: '4px 6px 6px 12px', margin: '1px 6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <div onClick={() => onGroupClick?.(g.cats)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} title={`${g.name} — ver transacciones`}>
+                <div style={{ fontSize: 11, color: '#999', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: g.avg < 0 ? '#ff7675' : '#55efc4' }}>{fmtUSD(g.avg)}<span style={{ fontSize: 10, color: '#666', fontWeight: 400 }}> /mes</span></div>
+              </div>
+              <button
+                onClick={() => onUnpinGroup?.(g.id)}
+                title="Quitar"
+                style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+              >×</button>
+            </div>
+            <select
+              value={g.range}
+              onChange={e => onSetGroupRange?.(g.id, e.target.value)}
+              style={{ marginTop: 3, width: '100%', fontSize: 10, padding: '2px 4px', borderRadius: 5, border: '1px solid #2a2a4e', background: '#1a1a2e', color: '#888', cursor: 'pointer' }}
+            >
+              {GROUP_RANGES.map(r => (
+                <option key={r.id} value={r.id} style={{ background: '#1a1a2e', color: '#e0e0e0' }}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+        {availGroups.length > 0 && (
+          <select
+            value=""
+            onChange={e => { if (e.target.value) { onPinGroup?.(e.target.value); e.target.value = '' } }}
+            style={{ margin: '8px 6px 0', width: 'calc(100% - 12px)', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #2a2a4e', background: '#1a1a2e', color: '#aaa', cursor: 'pointer' }}
+          >
+            <option value="">+ Fijar grupo…</option>
+            {availGroups.filter(grp => !pinnedGroupStats.some(p => p.id === grp.id)).map(grp => (
+              <option key={grp.id} value={grp.id} style={{ background: '#1a1a2e', color: '#e0e0e0' }}>{grp.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
       </div>
 
       {/* Config at bottom */}
@@ -565,19 +650,20 @@ export default function Finanzas({ session, onLogout }) {
   }
 
   // Pinned category results (sidebar) — total USD per category, scoped to the
-  // date range filter ONLY (ignores cat/bank/search/amount filters). Excludes xfer.
+  // date range + year filters ONLY (ignores cat/bank/search/amount filters). Excludes xfer.
   const pinnedCats = useMemo(() => settings?.pinned_cats ?? [], [settings])
 
   const pinnedResults = useMemo(() => {
     const map = {}
     for (const t of txs) {
       if (t.xfer || !t.cat) continue
+      if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) continue
       if (dateFrom && t.date < dateFrom) continue
       if (dateTo && t.date > dateTo) continue
       map[t.cat] = (map[t.cat] || 0) + (+t.usd || 0)
     }
     return map
-  }, [txs, dateFrom, dateTo])
+  }, [txs, selYears, dateFrom, dateTo])
 
   const pinCat = async (cat) => {
     if (!cat || pinnedCats.includes(cat)) return
@@ -594,6 +680,58 @@ export default function Finanzas({ session, onLogout }) {
 
   const goToCatFromSidebar = (cat) => {
     goToCat(cat)
+    setActivePanel('main')
+    window.location.hash = 'main'
+  }
+
+  // Monthly averages by expense group (sidebar) — each pinned group keeps its own
+  // preset date window; the average ignores the global filters entirely.
+  const expenseGroups = useMemo(() => settings?.expense_groups ?? [], [settings])
+  const pinnedGroups = useMemo(() => settings?.pinned_groups ?? [], [settings])
+
+  const pinnedGroupStats = useMemo(() => {
+    return pinnedGroups
+      .map(pg => {
+        const group = expenseGroups.find(g => g.id === pg.id)
+        if (!group) return null
+        const win = presetWindow(pg.range || 'last12')
+        const catSet = new Set(group.cats || [])
+        let sum = 0
+        const months = new Set()
+        for (const t of txs) {
+          if (t.xfer || !catSet.has(t.cat)) continue
+          if (win.from && t.date < win.from) continue
+          if (win.to && t.date > win.to) continue
+          sum += (+t.usd || 0)
+          if (t.ym) months.add(t.ym)
+        }
+        const divisor = win.months ?? (months.size || 1)
+        return { id: group.id, name: group.name, cats: group.cats || [], range: pg.range || 'last12', avg: sum / divisor }
+      })
+      .filter(Boolean)
+  }, [txs, pinnedGroups, expenseGroups])
+
+  const pinGroup = async (id) => {
+    if (!id || pinnedGroups.some(g => g.id === id)) return
+    const next = [...pinnedGroups, { id, range: 'last12' }]
+    setSettings(s => ({ ...s, pinned_groups: next }))
+    await saveSettings({ pinned_groups: next })
+  }
+
+  const unpinGroup = async (id) => {
+    const next = pinnedGroups.filter(g => g.id !== id)
+    setSettings(s => ({ ...s, pinned_groups: next }))
+    await saveSettings({ pinned_groups: next })
+  }
+
+  const setGroupRange = async (id, range) => {
+    const next = pinnedGroups.map(g => g.id === id ? { ...g, range } : g)
+    setSettings(s => ({ ...s, pinned_groups: next }))
+    await saveSettings({ pinned_groups: next })
+  }
+
+  const goToCatsFromSidebar = (cats) => {
+    setCatFs(cats || [])
     setActivePanel('main')
     window.location.hash = 'main'
   }
@@ -711,7 +849,13 @@ export default function Finanzas({ session, onLogout }) {
           onPin={pinCat}
           onUnpin={unpinCat}
           onPinClick={goToCatFromSidebar}
-          dateScoped={!!(dateFrom || dateTo)}
+          dateScoped={!!(dateFrom || dateTo || selYears.length)}
+          pinnedGroupStats={pinnedGroupStats}
+          availGroups={expenseGroups}
+          onPinGroup={pinGroup}
+          onUnpinGroup={unpinGroup}
+          onSetGroupRange={setGroupRange}
+          onGroupClick={goToCatsFromSidebar}
         />
 
         <div style={{ flex: 1, overflowY: 'auto' }}>

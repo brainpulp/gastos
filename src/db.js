@@ -201,6 +201,7 @@ export async function loadSettings() {
     usd_rate: 1050,
     cats: null,
     pinned_cats: [],
+    pinned_groups: [],
   }
 }
 
