@@ -239,15 +239,63 @@ function MultiSelectFilter({ label, options, selected, onChange, groups = [] }) 
   )
 }
 
-// ─── Sidebar ─────────────────────────────────────────────────────────────────
+// ─── Config menu (top-right) ───────────────────────────────────────────────────
 
-const SIDEBAR_ITEMS = [
-  { id: 'mint',       icon: '🏦',  label: 'Mint'       },
-  { id: 'papelera',   icon: '🗑',  label: 'Papelera'   },
-  { id: 'duplicados', icon: '📋',  label: 'Duplicados' },
-  { id: 'ml',         icon: '📦',  label: 'ML Import'  },
-  { id: 'upwork',     icon: '🧑‍💻', label: 'Upwork'     },
+const CONFIG_NAV = [
+  { id: 'mint',       icon: '🏦',  label: 'Mint'                },
+  { id: 'papelera',   icon: '🗑',  label: 'Papelera'            },
+  { id: 'duplicados', icon: '📋',  label: 'Duplicados'          },
+  { id: 'ml',         icon: '📦',  label: 'Mercadolibre Import' },
+  { id: 'upwork',     icon: '🧑‍💻', label: 'Upwork Import'       },
 ]
+
+const menuItemStyle = (active, disabled) => ({
+  display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px',
+  cursor: disabled ? 'default' : 'pointer', fontSize: 13, whiteSpace: 'nowrap',
+  background: active ? '#2a2a4e' : 'transparent',
+  color: active ? '#7c7cff' : '#ddd', opacity: disabled ? 0.4 : 1,
+})
+
+function ConfigMenu({ activePanel, onNavigate, onExport, onUpload, exportCount }) {
+  const [open, setOpen] = useState(false)
+  const go = (id) => { onNavigate(id); setOpen(false) }
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Menú"
+        style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6, background: open ? '#2a2a4e' : 'none' }}
+      >
+        ⚙ Config ▾
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, minWidth: 210, background: '#1a1a2e', border: '1px solid #2a2a4e', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)', zIndex: 41, padding: '6px 0', textAlign: 'left' }}>
+            {CONFIG_NAV.map(it => (
+              <div key={it.id} onClick={() => go(it.id)} style={menuItemStyle(activePanel === it.id)}>
+                <span style={{ fontSize: 15 }}>{it.icon}</span><span>{it.label}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: '1px solid #2a2a4e', margin: '6px 0' }} />
+            <div onClick={() => { onUpload(); setOpen(false) }} style={menuItemStyle(false)}>
+              <span style={{ fontSize: 15 }}>📥</span><span>Subir XLSX (Santander)</span>
+            </div>
+            <div onClick={() => { if (exportCount) { onExport(); setOpen(false) } }} style={menuItemStyle(false, !exportCount)}>
+              <span style={{ fontSize: 15 }}>📤</span><span>Exportar ({exportCount})</span>
+            </div>
+            <div style={{ borderTop: '1px solid #2a2a4e', margin: '6px 0' }} />
+            <div onClick={() => go('settings')} style={menuItemStyle(activePanel === 'settings')}>
+              <span style={{ fontSize: 15 }}>⚙</span><span>Configuración</span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 const GROUP_RANGES = [
   { id: 'last12',   label: 'Últimos 12 meses' },
@@ -274,26 +322,6 @@ function Sidebar({
         style={{ padding: '16px 12px 14px', cursor: 'pointer', borderBottom: '1px solid #2a2a4e' }}
       >
         <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>💰 gastos</span>
-      </div>
-
-      {/* Nav items */}
-      <div style={{ padding: '8px 0' }}>
-        {SIDEBAR_ITEMS.map(item => (
-          <div
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 12px', cursor: 'pointer', fontSize: 13,
-              borderRadius: 6, margin: '2px 6px',
-              background: activePanel === item.id ? '#2a2a4e' : 'transparent',
-              color: activePanel === item.id ? '#7c7cff' : '#aaa',
-            }}
-          >
-            <span style={{ fontSize: 15 }}>{item.icon}</span>
-            <span>{item.label}</span>
-          </div>
-        ))}
       </div>
 
       {/* Scrollable pinned area: Resultados (categories) + Mensual (groups) */}
@@ -388,23 +416,6 @@ function Sidebar({
           </select>
         )}
       </div>
-      </div>
-
-      {/* Config at bottom */}
-      <div style={{ borderTop: '1px solid #2a2a4e', padding: '8px 0 0' }}>
-        <div
-          onClick={() => onNavigate('settings')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '8px 12px', cursor: 'pointer', fontSize: 13,
-            borderRadius: 6, margin: '2px 6px',
-            background: activePanel === 'settings' ? '#2a2a4e' : 'transparent',
-            color: activePanel === 'settings' ? '#7c7cff' : '#aaa',
-          }}
-        >
-          <span style={{ fontSize: 15 }}>⚙</span>
-          <span>Config</span>
-        </div>
       </div>
     </div>
   )
@@ -819,21 +830,17 @@ export default function Finanzas({ session, onLogout }) {
             {!uploadMsg.loading && <button onClick={() => setUploadMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>×</button>}
           </div>
         )}
+        <ConfigMenu
+          activePanel={activePanel}
+          onNavigate={id => { setActivePanel(id); window.location.hash = id }}
+          onExport={handleExportXLSX}
+          onUpload={() => fileRef.current?.click()}
+          exportCount={filtered.length}
+        />
+        <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
         <button style={S.themeBtn} onClick={() => setDark(d => !d)} title="Cambiar tema">
           {dark ? '☀️' : '🌙'}
         </button>
-        <button
-          style={{ padding: '4px 10px', fontSize: 12, cursor: filtered.length ? 'pointer' : 'default', color: '#ccc', border: '1px solid #555', borderRadius: 6, background: 'none', opacity: filtered.length ? 1 : 0.4 }}
-          onClick={handleExportXLSX}
-          disabled={!filtered.length}
-          title={`Exportar ${filtered.length} transacciones a XLSX`}
-        >
-          📤 Exportar ({filtered.length})
-        </button>
-        <label style={{ padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: '#ccc', border: '1px solid #555', borderRadius: 6 }}>
-          📥 Subir XLSX
-          <input type="file" accept=".xlsx" ref={fileRef} onChange={handleUpload} style={{ display: 'none' }} />
-        </label>
         <button style={{ ...S.logoutBtn }} onClick={onLogout}>Salir</button>
       </div>
 
@@ -905,33 +912,6 @@ export default function Finanzas({ session, onLogout }) {
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button style={S.btnSm()} onClick={resetFilters}>Limpiar</button>
               </div>
-            </div>
-          )}
-
-          {/* Filter summary */}
-          {filterActive && activePanel === 'main' && (
-            <div style={{
-              background: '#1a1a2e', color: '#fff', borderRadius: 10, padding: '8px 16px',
-              margin: '0 16px 8px', display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13,
-            }}>
-              <span style={{ color: '#888', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                {filtered.length} transacciones
-              </span>
-              {filterSummary.out !== 0 && (
-                <span style={{ color: '#ff7675' }}>
-                  Gastos: <strong>{fmtUSD(filterSummary.out)}</strong>
-                </span>
-              )}
-              {filterSummary.inc !== 0 && (
-                <span style={{ color: '#55efc4' }}>
-                  Ingresos: <strong>{fmtUSD(filterSummary.inc)}</strong>
-                </span>
-              )}
-              {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
-                <span style={{ color: '#74b9ff' }}>
-                  Neto: <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong>
-                </span>
-              )}
             </div>
           )}
 
