@@ -915,6 +915,27 @@ export default function Finanzas({ session, onLogout }) {
             </div>
           )}
 
+          {/* Filtered totals — compact line shown whenever a filter/search is active */}
+          {filterActive && activePanel === 'main' && (
+            <div style={{
+              display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center',
+              fontSize: 12, padding: '6px 16px',
+              color: dark ? '#aaa' : '#555',
+              borderBottom: dark ? '1px solid #2a2a4e' : '1px solid #e5e7eb',
+            }}>
+              <span style={{ fontWeight: 600 }}>{filtered.length} transacciones</span>
+              {filterSummary.out !== 0 && (
+                <span style={{ color: '#e1706b' }}>Gastos <strong>{fmtUSD(filterSummary.out)}</strong></span>
+              )}
+              {filterSummary.inc !== 0 && (
+                <span style={{ color: '#2bb98a' }}>Ingresos <strong>{fmtUSD(filterSummary.inc)}</strong></span>
+              )}
+              {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
+                <span style={{ color: '#4a90d9' }}>Neto <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong></span>
+              )}
+            </div>
+          )}
+
           {/* Panel content */}
           <div style={S.content}>
             {activePanel === 'main' && (
