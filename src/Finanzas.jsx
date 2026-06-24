@@ -517,13 +517,6 @@ export default function Finanzas({ session, onLogout }) {
 
   const filterActive = !!(selYears.length || dateFrom || dateTo || catFs.length || bankFs.length || search || showUncatOnly || amountMin !== '' || amountMax !== '')
 
-  const filterSummary = useMemo(() => {
-    const nonXfer = filtered.filter(t => !t.xfer)
-    const out = nonXfer.filter(t => (t.usd ?? 0) < 0).reduce((s, t) => s + (t.usd || 0), 0)
-    const inc = nonXfer.filter(t => (t.usd ?? 0) > 0).reduce((s, t) => s + (t.usd || 0), 0)
-    return { out, inc }
-  }, [filtered])
-
   // Expense txs: non-transfers with negative amount (drives all KPIs and charts)
   const expenseTxs = useMemo(
     () => filtered.filter(t => !t.xfer && (t.ars != null ? +t.ars < 0 : +t.usd < 0)),
@@ -915,27 +908,6 @@ export default function Finanzas({ session, onLogout }) {
             </div>
           )}
 
-          {/* Filtered totals — compact line shown whenever a filter/search is active */}
-          {filterActive && activePanel === 'main' && (
-            <div style={{
-              display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center',
-              fontSize: 12, padding: '6px 16px',
-              color: dark ? '#aaa' : '#555',
-              borderBottom: dark ? '1px solid #2a2a4e' : '1px solid #e5e7eb',
-            }}>
-              <span style={{ fontWeight: 600 }}>{filtered.length} transacciones</span>
-              {filterSummary.out !== 0 && (
-                <span style={{ color: '#e1706b' }}>Gastos <strong>{fmtUSD(filterSummary.out)}</strong></span>
-              )}
-              {filterSummary.inc !== 0 && (
-                <span style={{ color: '#2bb98a' }}>Ingresos <strong>{fmtUSD(filterSummary.inc)}</strong></span>
-              )}
-              {filterSummary.out !== 0 && filterSummary.inc !== 0 && (
-                <span style={{ color: '#4a90d9' }}>Neto <strong>{fmtUSD(filterSummary.out + filterSummary.inc)}</strong></span>
-              )}
-            </div>
-          )}
-
           {/* Panel content */}
           <div style={S.content}>
             {activePanel === 'main' && (
@@ -1245,6 +1217,13 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
     })
   }, [txs, sort])
 
+  // USD totals for the currently-shown set (matches every row in this table)
+  const totals = useMemo(() => {
+    const out = txs.filter(t => (t.usd ?? 0) < 0).reduce((s, t) => s + (t.usd || 0), 0)
+    const inc = txs.filter(t => (t.usd ?? 0) > 0).reduce((s, t) => s + (t.usd || 0), 0)
+    return { out, inc }
+  }, [txs])
+
   const visible = sorted.slice(0, page * PAGE)
 
   const startEdit = (tx, field = 'merchant') => {
@@ -1328,8 +1307,19 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
 
   return (
     <div style={S.card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 14, color: '#555' }}>{txs.length} transacciones</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 14, color: dark ? '#bbb' : '#555' }}>{txs.length} transacciones</h3>
+          {totals.out !== 0 && (
+            <span style={{ fontSize: 13, color: '#e1706b' }}>Gastos <strong>{fmtUSD(totals.out)}</strong></span>
+          )}
+          {totals.inc !== 0 && (
+            <span style={{ fontSize: 13, color: '#2bb98a' }}>Ingresos <strong>{fmtUSD(totals.inc)}</strong></span>
+          )}
+          {totals.out !== 0 && totals.inc !== 0 && (
+            <span style={{ fontSize: 13, color: '#4a90d9' }}>Neto <strong>{fmtUSD(totals.out + totals.inc)}</strong></span>
+          )}
+        </div>
         <span style={{ fontSize: 11, color: '#bbb' }}>click en cualquier campo para editar · Enter para guardar</span>
       </div>
 
