@@ -2,6 +2,15 @@
 
 Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages deploy.
 
+> ## ⚖️ ACTIVE CENTRAL WORKSTREAM: Forensic accounting
+> The user is building **forensic funds-flow reconstruction** into Gastos: trace assets
+> from **Jan 2020 → today**, emphasis on **big transactions** and **2020–2023**, to
+> investigate a **suspected missing/unaccounted sum**. Approach is **top-down summary /
+> approximation** (not expense-by-expense), reconstructing **cash** big-tickets, working
+> from both ends (funds availability ↔ known uses) via a **Sources & Uses / Net Worth**
+> reconciliation. **See [`FORENSIC.md`](./FORENSIC.md) for the full mandate, methodology,
+> data model, and phased plan. Read it before any forensic/assets/cash work.**
+
 ## Links
 - **Live app**: https://brainpulp.github.io/gastos/
 - **GitHub**: https://github.com/brainpulp/gastos
