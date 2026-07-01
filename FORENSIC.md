@@ -112,6 +112,38 @@ Reuse the existing expense-group machinery but with a forensic lens: **Real Esta
 Travel, Donations, Business capital, Vehicles, Living (approx), Cash-out, Taxes**.
 (Implementation TBD: flag on `expense_groups` or a `forensic_groups` list in settings.)
 
+## 4B. Cash conduit model, statement anchors, FX spread (user brief, 2026-07-01)
+
+Three facts from the user that shape the model:
+
+1. **Statements exist for most accounts** (all PDFs/originals except Wells Fargo & BoFA;
+   there may have been **two accounts** at each of WF and BoFA). Gastos has the
+   transaction *lines* but **not the statement opening/closing balances** — those are
+   the "missing columns." **Harvest each statement's period-end balance** → monthly
+   **`node_balance` anchors** per account. Monthly checkpoints let the engine compute a
+   **residual per month** and pinpoint *when* money left, not just whether. User can
+   feed months piecemeal or grant direct access to the docs (PDF parse / Google Drive).
+
+2. **Cash-on-hand was never taken from a bank counter** — always via an **intermediate
+   bank / conduit** whose **name changed over time** (US→AR money movement during the
+   pandemic and just after). Model these as **conduit (pass-through) nodes**, all aliases
+   of one logical **"US→AR cash conduit"** role. Flow chain:
+   `US account → conduit(s) → cash-on-hand (AR) → big-ticket`.
+   `US→conduit` and `conduit→cash` are **conserving**; only `cash→big-ticket` is
+   **terminal**. This makes the case a **meet-in-the-middle**: hard end = US wire-outs to
+   conduits (**likely incl. the "Must trace" 2021 wires**); soft end = the **big-ticket
+   cash list** (user has it); match by **amount + date + FX**.
+
+3. **FX/spread leakage is mandatory.** Informal USD→AR cash conversion carried
+   commission/spread, so **USD out of the US ≠ ARS cash landed**. Each conduit conversion
+   needs an explicit **`leakage` term** (fees/FX loss) as a terminal mini-flow, or the
+   engine will misread normal transaction cost as "missing money." Distinguishing spread
+   from a true shortfall is probably decisive for the headline gap.
+
+**Big-ticket cash list** (user-held) is the destination anchor set for all reconstructed
+cash — every cash big-ticket must map to a node; the sum of cash big-tickets bounds how
+much cash the conduits had to deliver.
+
 ## 4A. Adopted analysis model — money-flow graph (supersedes §4 for the analysis layer)
 
 The forensic layer is a **directed graph of money flow 2020→today**, whose job is not
