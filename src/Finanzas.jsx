@@ -654,13 +654,14 @@ export default function Finanzas({ session, onLogout }) {
   }
 
   // Pinned category results (sidebar) — total USD per category, scoped to the
-  // date range + year filters ONLY (ignores cat/bank/search/amount filters). Excludes xfer.
+  // date range + year filters ONLY (ignores cat/bank/search/amount filters). Includes transfers,
+  // so a pinned category total matches that category's sum in the filtered transactions list.
   const pinnedCats = useMemo(() => settings?.pinned_cats ?? [], [settings])
 
   const pinnedResults = useMemo(() => {
     const map = {}
     for (const t of txs) {
-      if (t.xfer || !t.cat) continue
+      if (!t.cat) continue
       if (selYears.length && !selYears.includes(t.date?.slice(0, 4))) continue
       if (dateFrom && t.date < dateFrom) continue
       if (dateTo && t.date > dateTo) continue
@@ -703,7 +704,7 @@ export default function Finanzas({ session, onLogout }) {
         let sum = 0
         const months = new Set()
         for (const t of txs) {
-          if (t.xfer || !catSet.has(t.cat)) continue
+          if (!catSet.has(t.cat)) continue
           if (win.from && t.date < win.from) continue
           if (win.to && t.date > win.to) continue
           sum += (+t.usd || 0)
