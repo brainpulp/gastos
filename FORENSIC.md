@@ -335,6 +335,63 @@ All USD. "External" = non-transfer rows (internal transfers netted out).
   statement**, not a full history — full deposit/withdrawal history still needed
   (IBKR statements or a fuller export).
 
+## 12. Citibank personal — full 2020–2021 spine (harvested from statements, 2026-07-02)
+
+Two accounts only: **Interest Checking ...5038** and **Ultimate Savings ...1370** (Citi
+labels the savings "Insured Money Market" — all "Money Market" transfer wording refers
+to it; **the Mar-2020 $3.96M sweep was Citi-internal, checking→savings. Solved.**)
+
+### Month-end relationship totals (USD)
+| | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **2020** | 27.4k | 3.99M | 3.97M | 827k | 784.7k | 781.1k | 771.7k | 591.7k | 599.0k | 520.6k | 519.8k | 519.1k |
+| **2021** | 512.9k | 512.3k | 411.4k | 275.9k | 281.5k | 279.0k | 212.9k | 652.4k | 602.3k | 1.02M | 539.8k | 386.4k |
+
+**Jan 1 2020 Citi opening: ~$30.7k.** All wealth arrives Feb 4 2020.
+
+### External inflows into Citi (named originators)
+- **Vida Systems Inc.**: +4,044,079.83 (2020-02-04) · +180,000 (2020-07-09) · +450,000
+  (2021-08-11) · +35,000 (2021-10-13) · +10,000 (2021-11-12) · ~+18k small (Jan 2020)
+  → **≈ $4.74M total**
+- **Indiavidual Learning Ltd/Pvt**: +13,066.66 ×2 (Apr/May 2020) · +428,760 (2021-09-15)
+  · +428,730 (2021-10-08) → **≈ $883.6k total**
+- Capital One ACH credits (likely self-transfers back): +20,000 (2020-10-15),
+  +100,000 (2021-04-30)
+- Association of Migraine Disorders: +10,000 (2021-05-14)
+
+### The April 2020 fan-out (wires to self at other institutions, by Citi payee ref)
+| Payee ref | Wires (date, amount) | Total |
+|---|---|---|
+| #325098 | 02/10 40k · 04/01 250k · 04/02 750k | **$1,040k** |
+| #360975 | 04/01 250k · 04/08 450k | **$700k** |
+| #384669 | 03/31 3k · 04/02 750k | **$753k** |
+| #216016 | 04/20 50k · 04/20 200k · 04/24 250k | **$500k** |
+**≈ $2.99M to four self-owned destination accounts in weeks.** Apr 1–2 micro-ACHs from
+**Capital One** and **Wells Fargo ACHFUNDING** = new-account funding pings; WF folder is
+named "eureka888 (2020-4)". Destinations ⇒ WF / CapOne / (Chase or BoFA). **Match on
+receiving side.**
+
+### Named external outflows (real uses, not self)
+- 2020-04-30 **−180,020 to "k12 inc"** (ref #5004319812) — ASK USER what this was
+- 2020-05 **−49,000 to MUDART SPRINGS LLC** (35k + 14k) — ASK USER
+- Gorlay Consulting Group −30k (Mar/Apr 2020) · induslaw −19.75k (Feb 2020, IN law firm)
+- Small intl wires incl. guido goldschwartz abdala, Mani Chengappa & Mathur (IN)
+
+### Unattributed outgoing wires (ref numbers only — MATCH KEYS for IBKR/receivers)
+- **2020 H2** (−$457k): 07/08 −15k · 07/08 −75k · 07/30 −90k · 08/25 −50k ·
+  08/25 −127k · 10/14 −100k
+- **2021 H1** (−$330k): 03/04 −90k · 03/31 −10k · 04/09 −130k · 04/28 −100k
+- **2021 H2** (−$1,190k): 07/19 −60k · 09/01 −50k · 09/09 −200k · 09/23 −220k ·
+  10/25 −20k · 10/29 −10k · 11/02 −250k · 11/02 −50k · 11/09 −50k · 11/11 −50k ·
+  11/12 −15k ·  11/12 −15k · 11/16 −50k · 12/06 −50k · 12/20 −100k
+- Citi statements never name outgoing-wire beneficiaries. IBKR opened 2021-04-22 →
+  2021 wires are prime IBKR-funding candidates; verify against IBKR deposit history
+  (user delivering). 2020 H2 wires predate IBKR → likely AR conduits/other banks.
+
+### Still needed on Citi
+- **2022 statements missing from archive folder** (folder covers 2020–2021 only) —
+  needed: the hot period runs through 2022.
+
 ## 10. Document archive inventory (Google Drive, 2026-07-02)
 
 Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
