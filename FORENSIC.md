@@ -320,6 +320,64 @@ All USD. "External" = non-transfer rows (internal transfers netted out).
 6. Pre-existing forensic breadcrumbs already in the data: category **"Must trace"** on
    several 2021 Citibank wires (−$250k, −$220k, −$200k…); a **"Transfers"** category.
 
+## 10. Document archive inventory (Google Drive, 2026-07-02)
+
+Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
+- **Project description doc** (`1MqXZlNoqRKpFPiuPV9WmR9XscnQvMpasS2PbbRKDtFs`) — THE
+  mandate in the user's own words. Key parameters extracted to §11.
+- **`Bank Statements/`** (`1AN0UkMp5C63nNORzRK4SnLLJO66m3aY-`) — see below.
+- **`VIDA 2020 - 2022 GL'S/`** — general ledgers of Vida Systems (the business whose
+  sale/payout produced the ~$4M Feb-2020 inflow).
+- **`claude/`** — workspace folder.
+- Shortcut: "Transaction history all banks 2020-2025".
+
+`Bank Statements/` contents (folder IDs kept for direct access):
+- `resumenes statements citibank personal/` (`1BbN2rHrOZ_ataIoGmeHiOzeptDPzSUJz`)
+- `chase (personal)/` (`1saiVhjK1CaTZIf2-_lY5T9ImDvbebo76`), `Chase (business)/`
+- `resumenes statements wells fargo eureka888 (2020-4)/` — ONE of the two WF accounts
+- **`capital one (única cuenta de EEUU exteriorizada) usada para traer usd 600k/`**
+  (`13U96yZl8na-vkfHm8PD7HDAz7bnYD-zt`) — folder title itself is a finding: Capital One
+  was the **declared (exteriorizada) US account used to bring USD 600k into AR**.
+- `resumenes banco Santander Argentina/`, `resumenes BBVA Argentina/`
+- **Puente**: `resumenes banco Puente AR/`, `Puente hnos (cuenta AR)/`, plus PDF
+  "Movimientos Puente 14jul2021–13oct2024" — the **US→AR import vehicle** statements.
+- **Brokers**: `Interactive brokers - all activity (daily).csv` + `(monthly).csv`;
+  `Betterment broker, all transactions.csv` (+ Sheets copies).
+- **SVB (Vida Systems)**: e-statements folder + zip + transactions spreadsheet 2020-21.
+- **Aggregators**: `Personal Capital - 2020-01-01 thru 2026-05-17 transactions.csv`
+  (553 KB) + folder; Mint full download (csv + sheets) — cross-account backbone.
+- `coinbase all activity up to 08-2024/`.
+
+**Still missing from archive**: BoFA statements, WF second account, Citibank business.
+
+## 11. Mandate parameters (from the project-description doc — user's own words)
+
+- **Headline question:** “Is a significant amount (**over $100k**) unaccounted for or
+  missing?” Discrepancies **< $100k** → attributed to bad accounting / unrecorded cash.
+- **Second question:** living costs over the last 5 years, by major category, high
+  error tolerance.
+- **Materiality:** track **> $10k** transactions; routing analysis uses **> $40k**
+  transfers; result is about big figures.
+- **Emphasis period: 2021–2022** ("first 2 years, where most big money movements were
+  made"). [Supersedes earlier 2020–2023 emphasis; 2020 is when the money arrived.]
+- **Routing goal:** know **where the money was at every 6-month interval** (Citibank →
+  5 bank accounts → IBKR investments → real estate → …).
+- Taxes were paid in both US and AR — should be visible in statements; treat as a
+  legitimate Use bucket, not a leak.
+- **Full account perimeter** (from doc): US: Citi personal + business, WF ×2, Chase
+  personal + business, BoFA, SVB (closed; one key early transaction). Brokers: IBKR,
+  Betterment, Puentenet US (late, minor). Crypto: Coinbase, Binance (+ late/minor: cold
+  wallet, Pionex, Mexc). AR: Santander main + Santander real-estate, BBVA (late/minor),
+  **Puentenet AR (the import vehicle)**, safe-deposit box (late/minor).
+- **Destination list (user's figures):** Real estate: Luis María Campos $200k (came
+  from mother as repayment of his $200k loan — donation of the flat), Mocoretá $275k
+  (current home), **Arcos $574k**, Delta $65k, Roca I+II (TBD, installments). Gifts:
+  Iván $110k, Alejandro $25k effective (of $100k pledged), **Laura ~$300k**. Loans out:
+  Edu ~$65k, mother $200k (repaid via LMC). Boats: Maluca $10k, Chana Timbu $6k, Chilli
+  Pepper $26k, Eureka $24k, Machitoia $4k, ACDC $24k (≈$94k). Cars: Ecosport, F-100
+  $6k, RAV4 $26k. Motos: Husqvarna $10k, e-bike $3k. Travel: 13 trips 2020–2024, few
+  $k each. Projects (no revenue): Arcos, Delta, Eureka rebuild, Carhué remodels.
+
 ### Refined big questions (supersede/augment §6)
 - Q1. Where did the **~$4M money-market sweep (Mar 2020)** go, and what fed **Chase**?
 - Q2. What are the **opening balances (Jan 2020)** across all accounts + the
