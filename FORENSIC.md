@@ -372,8 +372,14 @@ named "eureka888 (2020-4)". Destinations ⇒ WF / CapOne / (Chase or BoFA). **Ma
 receiving side.**
 
 ### Named external outflows (real uses, not self)
-- 2020-04-30 **−180,020 to "k12 inc"** (ref #5004319812) — ASK USER what this was
-- 2020-05 **−49,000 to MUDART SPRINGS LLC** (35k + 14k) — ASK USER
+- 2020-04-30 **−180,020 to "k12 inc"** — USER: post-sale account-cleanup payment, cost
+  of business; **possibly reimbursed by Indiavidual** (unverified — check whether any
+  later Indiavidual inflow includes ~$180k on top of contract amounts; the Sep/Oct 2021
+  $428.7k wires are candidates to decompose).
+- 2020-05 **−49,000 to MUDART SPRINGS LLC** (35k + 14k) — USER: **a cash bridge to AR**
+  → the **earliest named US-side conduit** (May 2020, pre-Puente). Add as conduit node;
+  expect matching cash arrival in AR ~May 2020 minus spread. Other unattributed wires
+  (esp. 2020 H2's $457k) may also be MUDART-style conduits — compare patterns.
 - Gorlay Consulting Group −30k (Mar/Apr 2020) · induslaw −19.75k (Feb 2020, IN law firm)
 - Small intl wires incl. guido goldschwartz abdala, Mani Chengappa & Mathur (IN)
 
