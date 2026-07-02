@@ -320,6 +320,21 @@ All USD. "External" = non-transfer rows (internal transfers netted out).
 6. Pre-existing forensic breadcrumbs already in the data: category **"Must trace"** on
    several 2021 Citibank wires (−$250k, −$220k, −$200k…); a **"Transfers"** category.
 
+## 9A. Broker findings (first probe, 2026-07-02)
+
+- **IBKR account U5847060, opened 2021-04-22**, base USD, individual. As of **Jul 2024:
+  NAV ≈ $1.49M** (≈$1.44M stocks + $54k cash; SPY/QQQ/DIA-heavy portfolio).
+  → **~$1.5M of the wealth is located and documented.** This is the single biggest
+  "destination" found so far and likely absorbs much of the 2021 US outflows
+  (the −$1.75M external 2021 could largely be IBKR funding — verify deposits).
+- The Mar-2020 **$3.96M "Money Market" sweep predates IBKR** (account opened Apr 2021)
+  → the sweep target was likely **Citibank's own money-market/savings** side, and funds
+  later fanned out (IBKR, Puente/AR, Capital One $600k import channel, etc.). Verify in
+  Citi statements.
+- The "IBKR all activity (monthly).csv" is actually a **single July-2024 activity
+  statement**, not a full history — full deposit/withdrawal history still needed
+  (IBKR statements or a fuller export).
+
 ## 10. Document archive inventory (Google Drive, 2026-07-02)
 
 Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
