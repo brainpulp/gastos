@@ -398,6 +398,32 @@ receiving side.**
 - **2022 statements missing from archive folder** (folder covers 2020–2021 only) —
   needed: the hot period runs through 2022.
 
+## 13. The April 2020 fan-out — FULLY MAPPED (receiving side, 2026-07-02)
+
+Citi payee refs decoded (via credentials sheet "restored - trash" in Drive + receiving
+statements). **All four destinations identified:**
+
+| Citi ref | Institution (last-4) | Received | Fate (traced) |
+|---|---|---:|---|
+| #325098 | **Bank of America ...2975** | **$1,040k** ($40k Feb + $250k+$750k Apr) | **UNTRACED — no BofA statements anywhere. Biggest hole.** |
+| #360975 | **Capital One 360 ...0178/...1758** | $700k | $605k → AR via 9 wires Oct 2021–Feb 2024 (**first wire ref "FFC 114522" = Puente AR acct**); $120k back to Citi; ~$5k left Jul 2024 |
+| #384669 | **Chase Savings ...8646** (+chk ...7644) | $753k | Dormant 2 yrs; then $392k → IBKR U5847060 (Dec 2022, 4×$98k); $199k → Citi (2023); $99.95k → **Opus Medical Therapies LLC** (Jun 2022, ASK USER); $25k → MUDART (Jun 2020); $20k → WF; $13.3k left |
+| #216016 | **Wells Fargo chk ...4089** (+Platinum Savings ...0334, both opened Apr 2020) | $500.5k | **$444k → Betterment** (2021–Apr 2022, mostly 4×$49,988 + 2×$100k); $52k PayPal drip; $19k → Citi (Sep 2023); both accts ~$0 by 2023/24 |
+
+Notes:
+- WF statements folder in Drive is EMPTY; WF history reconstructed from Personal
+  Capital + Mint aggregator CSVs (full coverage 2020-04 → 2024-06). Two WF accounts
+  confirmed (checking ...4089 opened 04/06/2020; Platinum Savings ...0334 04/27/2020).
+- MUDART conduit running total: **$74k** ($49k ex-Citi May 2020 + $25k ex-Chase Jun 2020).
+- Third-party beneficiaries requiring user explanation: **Opus Medical Therapies LLC
+  ~$100k (Jun 2022)**; Gorlay Consulting $30k (2020); induslaw $19.75k (2020).
+- IBKR funding documented so far: $392k ex-Chase Dec 2022; 2021 Citi wires (~$1.5M
+  unattributed) presumed IBKR — confirm with user's deposit export.
+- **Next hops: (1) BofA ...2975 — $1.04M with zero statements; (2) Betterment CSV
+  (in Drive) — trace the $444k; (3) Puente PDF — confirm CapOne arrivals.**
+- Agent scratch extracts: personal_capital.csv / mint.csv / wf_4089_pc.csv in session
+  scratchpad (ephemeral).
+
 ## 10. Document archive inventory (Google Drive, 2026-07-02)
 
 Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
