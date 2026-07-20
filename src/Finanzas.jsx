@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import _ from 'lodash'
 import * as XLSX from 'xlsx'
-import { parseXLSX } from './uploadParser.js'
+import { parseXLSX, buildMerchantHistory, resolveCatFromHistory } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadBlueRates,
@@ -603,16 +603,23 @@ export default function Finanzas({ session, onLogout }) {
     try {
       const defaultRate = settings?.usd_rate ?? 1050
       const { txs: parsed, count } = await parseXLSX(file, defaultRate)
+      // Tag from historical merchant categorization: a merchant whose past
+      // taggings are >75% one category passes it on; new/ambiguous → untagged.
+      const history = buildMerchantHistory(txs)
+      let fromHistory = 0, leftBlank = 0
       const enriched = parsed.map(tx => {
         const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
-        return { ...tx, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
+        const cat = resolveCatFromHistory(tx, history)
+        if (!tx.xfer) { if (cat) fromHistory++; else leftBlank++ }
+        return { ...tx, cat, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
       })
       setUploadMsg({ loading: true, text: `Subiendo ${count} transacciones…` })
       const { skipped } = await upsertTransactions(enriched)
       const fresh = await loadTransactions()
       setTxs(fresh)
       const skipMsg = skipped.length ? ` (${skipped.length} omitidas — borradas previamente)` : ''
-      setUploadMsg({ loading: false, text: `✅ ${count} transacciones importadas${skipMsg}` })
+      const tagMsg = ` · 🏷️ ${fromHistory} etiquetadas por historial, ${leftBlank} sin etiquetar`
+      setUploadMsg({ loading: false, text: `✅ ${count} transacciones importadas${skipMsg}${tagMsg}` })
     } catch (err) {
       setUploadMsg({ loading: false, text: `❌ ${err.message}`, error: true })
     }

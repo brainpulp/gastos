@@ -29,6 +29,67 @@ export function detectCat(desc) {
   return 'Uncategorized Expenses';
 }
 
+// ─── Historical merchant tagging ─────────────────────────────────────────────
+// On import we do NOT keyword-guess a category. Instead we look at how this exact
+// merchant was categorized in the existing transactions. If one category accounts
+// for MORE than 75% of that merchant's past taggings, the new rows inherit it.
+// New or ambiguous merchants are left untagged (cat = null) — never guessed.
+
+// Normalize a merchant string so historical and freshly-parsed rows key the same
+// way (case-insensitive, whitespace-collapsed).
+export function normMerchant(s) {
+  if (!s) return null;
+  return String(s).toLowerCase().replace(/\s+/g, ' ').trim() || null;
+}
+
+// Strip the UI-level 🤖 prefix (AI-assigned marker) so AI and manual taggings of
+// the same underlying category aggregate together, and the copied tag is clean.
+function cleanCat(cat) {
+  if (!cat) return null;
+  return String(cat).replace(/^🤖\s*/, '').trim() || null;
+}
+
+/**
+ * Build { [normMerchant]: { [cat]: count } } from existing transactions.
+ * Skips deleted rows, transfers (structural Interbank cats), and untagged rows.
+ * @param {object[]} existingTxs
+ */
+export function buildMerchantHistory(existingTxs = []) {
+  const hist = {};
+  for (const t of existingTxs) {
+    if (!t || t.deleted_at || t.xfer) continue;
+    const cat = cleanCat(t.cat);
+    const key = normMerchant(t.merchant);
+    if (!cat || !key) continue;
+    (hist[key] ??= {})[cat] = (hist[key][cat] || 0) + 1;
+  }
+  return hist;
+}
+
+// Return the single category that accounts for > threshold of a merchant's
+// history, or null if none clears the bar (mixed history → don't guess).
+export function dominantCat(counts, threshold = 0.75) {
+  if (!counts) return null;
+  const entries = Object.entries(counts);
+  if (!entries.length) return null;
+  const total = entries.reduce((a, [, c]) => a + c, 0);
+  const [topCat, topCount] = entries.sort((a, b) => b[1] - a[1])[0];
+  return topCount / total > threshold ? topCat : null;
+}
+
+/**
+ * Resolve the category for a freshly-parsed tx from merchant history.
+ * - Transfers keep their structural Interbank cat.
+ * - Known merchant with a >75% dominant category → that category.
+ * - New or ambiguous merchant → null (left untagged, never guessed).
+ */
+export function resolveCatFromHistory(tx, history, threshold = 0.75) {
+  if (tx.xfer) return tx.cat ?? null;
+  const key = normMerchant(tx.merchant);
+  if (!key) return null;
+  return dominantCat(history[key], threshold);
+}
+
 function parseARS(val) {
   if (val == null || val === '') return 0;
   return parseFloat(String(val).replace(/[^-\d.]/g, '')) || 0;
@@ -93,9 +154,11 @@ function parseSantanderAR(workbook, usdRate) {
     return {
       id: `u_${fecha}_${referencia}`,
       date: fecha,
+      // Non-transfers come in untagged; the upload flow assigns a category from
+      // merchant history (resolveCatFromHistory) when it is >75% unambiguous.
       cat: isXfer
         ? (ars > 0 ? 'Interbank incoming' : 'Interbank outgoing')
-        : detectCat(txType + ' ' + merchant),
+        : null,
       bank: 'Santander',
       usd: +(ars / usdRate).toFixed(2),
       ars,
