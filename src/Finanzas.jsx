@@ -157,9 +157,11 @@ function catColor(cat, alpha = 1) {
   return `hsla(${h},60%,50%,${alpha})`
 }
 
-const badge = (cat) => ({
+// Category tag: colored background, but fixed text color (black in light mode,
+// light in dark mode) — text never varies with the per-category background.
+const badge = (cat, dark = false) => ({
   display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
-  background: catColor(cat, 0.15), color: catColor(cat, 0.85),
+  background: catColor(cat, 0.15), color: dark ? '#e8e8f0' : '#000',
 })
 
 
@@ -1177,7 +1179,7 @@ function DashTab({ expenseTxs, totalUSD, totalARS, perMonthUSD, perMonthARS, per
               <tbody>
                 {totalesData.map(row => (
                   <tr key={row.cat}>
-                    <td style={S.td}><span style={{ ...badge(row.cat), cursor: 'pointer' }} onClick={() => onCatClick(row.cat)}>{row.cat}</span></td>
+                    <td style={S.td}><span style={{ ...badge(row.cat, dark), cursor: 'pointer' }} onClick={() => onCatClick(row.cat)}>{row.cat}</span></td>
                     <td style={{ ...S.td, textAlign: 'right', ...(row.usd < 0 ? S.negARS : S.posARS) }}>{fmtUSD(row.usd)}</td>
                     <td style={{ ...S.td, textAlign: 'right', ...(row.ars < 0 ? S.negARS : S.posARS) }}>{fmtARS(row.ars)}</td>
                     <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{row.count}</td>
@@ -1441,7 +1443,7 @@ function TxsTab({ txs, onUpdate, onDelete, onBulkDelete, onBulkUpdate, onAdd, ba
                           padding: '2px 6px', border: 'none', outline: 'none', cursor: 'pointer',
                           maxWidth: 170,
                           background: tx.cat ? catColor(tx.cat, 0.15) : (dark ? '#1a1a2e' : 'transparent'),
-                          color: tx.cat ? catColor(tx.cat, 0.85) : (dark ? '#555' : '#bbb'),
+                          color: tx.cat ? (dark ? '#e8e8f0' : '#000') : (dark ? '#555' : '#bbb'),
                         }}
                       >
                         <option value="">—</option>
@@ -1659,7 +1661,7 @@ function CategoryMgmtSection({ cats, txs, onAddCat, onRenameCat, onDeleteCat }) 
               const isDirty = renaming[cat] !== undefined && renaming[cat] !== cat
               return (
                 <tr key={cat}>
-                  <td style={S.td}><span style={badge(cat)}>{cat}</span></td>
+                  <td style={S.td}><span style={badge(cat, dark)}>{cat}</span></td>
                   <td style={{ ...S.td, textAlign: 'right', color: '#888' }}>{catCounts[cat] || 0}</td>
                   <td style={S.td}>
                     <div style={{ display: 'flex', gap: 4 }}>
