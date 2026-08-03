@@ -198,7 +198,7 @@ export async function loadSettings() {
     category_budgets: {},
     groups: [],
     vendor_hints: {},
-    usd_rate: 1050,
+    usd_rate: null,
     cats: null,
     pinned_cats: [],
     pinned_groups: [],

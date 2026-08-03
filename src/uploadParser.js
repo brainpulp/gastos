@@ -95,6 +95,35 @@ function parseARS(val) {
   return parseFloat(String(val).replace(/[^-\d.]/g, '')) || 0;
 }
 
+// ─── Blue-rate lookup ────────────────────────────────────────────────────────
+// blue_rates holds one row per *published* day — no weekends/holidays, and the
+// most recent days lag until the table is refreshed. An exact-date lookup misses
+// constantly, and the old code papered over that with a fixed 1050 fallback that
+// silently mis-converted every affected row (ARS/1050 instead of the real rate).
+//
+// Instead, carry the last known rate forward to the transaction date (and back to
+// the earliest rate for dates before the series begins). Never invent a number:
+// if blue_rates is empty the lookup returns null and the caller must handle it,
+// rather than fabricating a wrong conversion.
+export function makeRateLookup(blueRates = {}) {
+  const sorted = Object.entries(blueRates)
+    .filter(([d, r]) => d && r != null)
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return (date) => {
+    if (!sorted.length || !date) return null;
+    const exact = blueRates[date];
+    if (exact != null) return exact;
+    // Most recent rate on or before `date` (carry forward)
+    let carried = null;
+    for (const [d, r] of sorted) {
+      if (d <= date) carried = r;
+      else break;
+    }
+    // Before the series starts → fall back to the earliest known rate
+    return carried != null ? carried : sorted[0][1];
+  };
+}
+
 // ─── Bank detection ──────────────────────────────────────────────────────────
 
 export function detectBank(workbook) {
@@ -160,9 +189,11 @@ function parseSantanderAR(workbook, usdRate) {
         ? (ars > 0 ? 'Interbank incoming' : 'Interbank outgoing')
         : null,
       bank: 'Santander',
-      usd: +(ars / usdRate).toFixed(2),
+      // Placeholder only — the upload flow overwrites usd/usdRate with the
+      // date-accurate blue rate (makeRateLookup) before persisting.
+      usd: usdRate ? +(ars / usdRate).toFixed(2) : null,
       ars,
-      usdRate,
+      usdRate: usdRate ?? null,
       xfer: isXfer,
       ym: fecha.slice(0, 7),
       year: parseInt(yyyy),

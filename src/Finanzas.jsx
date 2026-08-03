@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import _ from 'lodash'
 import * as XLSX from 'xlsx'
-import { parseXLSX, buildMerchantHistory, resolveCatFromHistory } from './uploadParser.js'
+import { parseXLSX, buildMerchantHistory, resolveCatFromHistory, makeRateLookup } from './uploadParser.js'
 import {
   loadTransactions, upsertTransactions, softDeleteTransaction, updateTransaction,
   bulkUpdateCat, bulkUpdateByIds, insertTransaction, loadSettings, saveSettings, loadBlueRates,
@@ -603,14 +603,18 @@ export default function Finanzas({ session, onLogout }) {
     e.target.value = ''
     setUploadMsg({ loading: true, text: 'Procesando archivo…' })
     try {
-      const defaultRate = settings?.usd_rate ?? 1050
-      const { txs: parsed, count } = await parseXLSX(file, defaultRate)
+      const { txs: parsed, count } = await parseXLSX(file)
+      // Each row is converted with the dólar-blue rate for its own date, carried
+      // forward from the last published rate (weekends/holidays/recent lag) — no
+      // fixed fallback that would silently mis-value rows.
+      const rateFor = makeRateLookup(blueRates)
       // Tag from historical merchant categorization: a merchant whose past
       // taggings are >75% one category passes it on; new/ambiguous → untagged.
       const history = buildMerchantHistory(txs)
       let fromHistory = 0, leftBlank = 0
       const enriched = parsed.map(tx => {
-        const rate = blueRates[tx.date] ?? tx.usdRate ?? defaultRate
+        const rate = rateFor(tx.date)
+        if (!rate) throw new Error(`Sin cotización del dólar blue para ${tx.date}. Actualizá blue_rates e intentá de nuevo.`)
         const cat = resolveCatFromHistory(tx, history)
         if (!tx.xfer) { if (cat) fromHistory++; else leftBlank++ }
         return { ...tx, cat, usd_rate: rate, usd: +(tx.ars / rate).toFixed(2) }
@@ -2640,9 +2644,10 @@ function MLImportTab({ onImport }) {
     setImporting(true)
     try {
       const blueRates = await loadBlueRates()
+      const rateFor = makeRateLookup(blueRates)
       const txObjs = toSend.map(r => {
         const ars = r.ars != null ? -Math.abs(r.ars) : null
-        const rate = r.date ? blueRates[r.date] : null
+        const rate = r.date ? rateFor(r.date) : null
         const usd = ars != null && rate ? Math.round((ars / rate) * 100) / 100 : null
         return {
           id: `ml_${r.mlaId || r.idx}_${(r.date||'').replace(/-/g,'')}_${r.idx}`,

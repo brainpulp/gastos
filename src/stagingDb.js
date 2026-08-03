@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js'
+import { makeRateLookup } from './uploadParser.js'
 
 // ─── Sources ─────────────────────────────────────────────────────────────────
 
@@ -224,8 +225,9 @@ export async function mergeStagingNew(newRows, sourceType, blueRates = {}) {
   if (!newRows.length) return 0
   const { data: { user } } = await supabase.auth.getUser()
 
+  const rateFor = makeRateLookup(blueRates)
   const txRows = newRows.map(row => {
-    const rate = blueRates[row.date] ?? null
+    const rate = row.date ? rateFor(row.date) : null
     const usd  = row.amount ?? 0
     return {
       id:          `f_${row.id}`,
