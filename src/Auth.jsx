@@ -1,13 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from './supabase.js'
+
+// In the native (Capacitor) app the OAuth callback returns to a custom URL
+// scheme instead of an http origin. Must match:
+//   - Supabase → Auth → URL Configuration → Redirect URLs
+//   - iOS Info.plist URL types (Capacitor registers the appId scheme)
+const NATIVE_REDIRECT = 'com.brainpulp.gastos://auth'
+const isNative = () => !!(typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.())
 
 export default function Auth() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // Native only: capture the OAuth redirect deep link and set the session.
+  useEffect(() => {
+    if (!isNative()) return
+    const plugins = window.Capacitor?.Plugins
+    if (!plugins?.App) return
+    let handle
+    plugins.App.addListener('appUrlOpen', async ({ url }) => {
+      try {
+        const frag = url.split('#')[1]
+        if (frag) {
+          const p = new URLSearchParams(frag)
+          const access_token = p.get('access_token')
+          const refresh_token = p.get('refresh_token')
+          if (access_token && refresh_token) {
+            await supabase.auth.setSession({ access_token, refresh_token })
+          }
+        }
+        plugins.Browser?.close?.()
+      } catch (e) { setError(e.message) }
+    }).then(h => { handle = h })
+    return () => handle?.remove?.()
+  }, [])
+
   const handleGoogle = async () => {
     setLoading(true)
     setError(null)
+    if (isNative()) {
+      const { data, error: err } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: NATIVE_REDIRECT, skipBrowserRedirect: true },
+      })
+      if (err) { setError(err.message); setLoading(false); return }
+      const Browser = window.Capacitor?.Plugins?.Browser
+      if (Browser) await Browser.open({ url: data.url })
+      else window.location.href = data.url
+      setLoading(false)
+      return
+    }
     const redirectTo = window.location.origin + window.location.pathname
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: 'google',

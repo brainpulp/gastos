@@ -6,10 +6,21 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:app": "cross-env CAP_BUILD=1 vite build",
+    "cap:sync": "npm run build:app && cap sync ios",
+    "cap:open": "cap open ios",
+    "cap:add-ios": "npm run build:app && cap add ios && cap sync ios",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/browser": "^6.0.0",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/ios": "^6.1.2",
+    "@capacitor/keyboard": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
     "@supabase/supabase-js": "^2.105.4",
     "lodash": "^4.18.1",
     "react": "^19.2.5",
@@ -19,6 +30,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.1.2",
+    "cross-env": "^7.0.3",
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

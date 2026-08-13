@@ -1,0 +1,16 @@
+{
+  "appId": "com.brainpulp.gastos",
+  "appName": "Gastos",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#0b0b14"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#0b0b14",
+      "showSpinner": false
+    }
+  }
+}
