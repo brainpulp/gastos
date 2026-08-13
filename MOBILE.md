@@ -26,10 +26,11 @@ Historial IA y Subir XLSX viven dentro de Config.
 
 ### Funcionalidad cubierta
 - **Resumen** — saldo del mes, gasto mensual (tocá un mes → filtra), anillo por categoría, aviso de revisión.
-- **Movimientos** — búsqueda, filtros por banco / sin categoría / categoría / mes, lista por fecha, **deslizar** para categorizar o borrar, tocar para editar todos los campos, botón + para agregar.
+- **Movimientos** — búsqueda; filtros por banco / sin categoría / categoría / mes; **Filtros** avanzados (rango de fechas, rango de monto USD, grupo de gastos); lista por fecha; **deslizar** para categorizar o borrar; tocar para editar todos los campos; botón + para agregar; **exportar/compartir** el filtro como XLSX.
 - **Revisar** — cola de la IA como tarjetas: Aceptar / Cambiar / Rechazar.
 - **Forense** — Fuentes y usos en USD (2020→hoy y 2020–2023), total "a rastrear", desglose por año, grandes movimientos con umbral $5k/$10k/$25k y marca de rastreo. Ver `FORENSIC.md`.
-- **Config** — modo oscuro, presupuesto mensual, subir XLSX (Santander), historial IA, renombrar/fusionar/vaciar categorías, cerrar sesión.
+- **Config** — modo oscuro; presupuesto mensual; **grupos de gastos** (crear/editar/borrar, mostrar en Resumen); **papelera** (ver y restaurar borrados); **exportar XLSX**; subir XLSX (Santander); historial IA; agregar/renombrar/fusionar/vaciar categorías; cerrar sesión.
+- **Resumen** — además de saldo/gráficos, tarjeta de **Grupos** con promedio mensual y total (para grupos marcados "mostrar en resumen").
 
 ---
 

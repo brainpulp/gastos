@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import {
   loadTransactions, upsertTransactions, updateTransaction, softDeleteTransaction,
   insertTransaction, bulkUpdateCat, loadSettings, saveSettings, loadBlueRates, loadCatLog,
+  loadDeletedTransactions, restoreTransaction,
 } from '../db.js'
 import { parseXLSX, buildMerchantHistory, resolveCatFromHistory, makeRateLookup } from '../uploadParser.js'
 import {
@@ -27,7 +29,8 @@ export default function MobileApp({ session, onLogout }) {
   const [err, setErr] = useState(null)
 
   // cross-tab filter state (owned here so Resumen can drive Movimientos)
-  const [flt, setFlt] = useState({ search: '', bank: 'all', uncat: false, cat: null, month: null })
+  const EMPTY_FLT = { search: '', bank: 'all', uncat: false, cat: null, month: null, group: null, dateFrom: '', dateTo: '', amtMin: '', amtMax: '' }
+  const [flt, setFlt] = useState(EMPTY_FLT)
 
   // editing / pickers
   const [editTx, setEditTx] = useState(null)
@@ -70,8 +73,9 @@ export default function MobileApp({ session, onLogout }) {
     try { await insertTransaction(fields); await reloadAll() } catch (e) { setErr(e.message) }
   }
 
-  function goToCat(cat) { setFlt({ search: '', bank: 'all', uncat: false, cat, month: null }); setTab('movim') }
-  function goToMonth(month) { setFlt({ search: '', bank: 'all', uncat: false, cat: null, month }); setTab('movim') }
+  function goToCat(cat) { setFlt({ ...EMPTY_FLT, cat }); setTab('movim') }
+  function goToMonth(month) { setFlt({ ...EMPTY_FLT, month }); setTab('movim') }
+  function goToGroup(group) { setFlt({ ...EMPTY_FLT, group }); setTab('movim') }
   function openCatPicker(onPick, title = 'Elegí categoría') { setPicker({ onPick, title }) }
 
   const loading = txs === null || settings === null
@@ -94,8 +98,8 @@ export default function MobileApp({ session, onLogout }) {
           <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: t.muted }}>Cargando…</div>
         ) : (
           <>
-            {tab === 'resumen' && <ResumenTab {...{ txs, t, goToCat, goToMonth, reviewCount: reviewTxs.length, setTab }} />}
-            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => setAddOpen(true) }} />}
+            {tab === 'resumen' && <ResumenTab {...{ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount: reviewTxs.length, setTab }} />}
+            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, emptyFlt: EMPTY_FLT, groups: settings.expense_groups || [], availCats, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => setAddOpen(true) }} />}
             {tab === 'revisar' && <RevisarTab {...{ reviewTxs, t, saveTx, openCatPicker }} />}
             {tab === 'forense' && <ForenseTab {...{ txs, t, onEdit: setEditTx }} />}
             {tab === 'config'  && <ConfigTab {...{ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr }} />}
@@ -141,7 +145,7 @@ function TabScroll({ children, onScrollNearBottom }) {
 }
 
 // ═══════════════════════ RESUMEN ═══════════════════════
-function ResumenTab({ txs, t, goToCat, goToMonth, reviewCount, setTab }) {
+function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount, setTab }) {
   const now = new Date()
   const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
@@ -177,6 +181,15 @@ function ResumenTab({ txs, t, goToCat, goToMonth, reviewCount, setTab }) {
     return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
   }, [last12])
   const catsTotal = cats.reduce((s, c) => s + c[1], 0) || 1
+
+  const groupStats = useMemo(() => {
+    const gs = (settings?.expense_groups || []).filter(g => g.showOnDash && g.cats?.length)
+    return gs.map(g => {
+      const set = new Set(g.cats)
+      const total = last12.filter(x => usdOf(x) < 0 && set.has(x.cat)).reduce((s, x) => s + Math.abs(usdOf(x)), 0)
+      return { id: g.id, name: g.name, total, avg: total / 12 }
+    }).filter(g => g.total > 0)
+  }, [settings, last12])
 
   return (
     <TabScroll t={t}>
@@ -215,6 +228,22 @@ function ResumenTab({ txs, t, goToCat, goToMonth, reviewCount, setTab }) {
         </Card>
       )}
 
+      {/* grupos de gastos (showOnDash) */}
+      {groupStats.length > 0 && (
+        <Card t={t} style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Grupos</div>
+          {groupStats.map((g, i) => (
+            <div key={g.id} onClick={() => goToGroup(g.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', cursor: 'pointer', borderTop: i > 0 ? `1px solid ${t.lineSoft}` : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{g.name}</div>
+                <div style={{ fontSize: 11, color: t.muted }}>{fmtUSDk(-g.avg)}/mes prom.</div>
+              </div>
+              <b style={{ fontVariantNumeric: 'tabular-nums', color: t.neg }}>{fmtUSDk(-g.total)}</b>
+            </div>
+          ))}
+        </Card>
+      )}
+
       {/* por categoria */}
       <Card t={t} style={{ marginTop: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Por categoría</div>
@@ -236,30 +265,38 @@ function ResumenTab({ txs, t, goToCat, goToMonth, reviewCount, setTab }) {
 }
 
 // ═══════════════════════ MOVIMIENTOS ═══════════════════════
-function MovimientosTab({ txs, t, flt, setFlt, onEdit, onDelete, openCatPicker, saveTx, onAdd }) {
+function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEdit, onDelete, openCatPicker, saveTx, onAdd }) {
   const [visible, setVisible] = useState(50)
+  const [advOpen, setAdvOpen] = useState(false)
   const banksPresent = useMemo(() => ['all', ...BANKS.filter(b => txs.some(x => x.bank === b))], [txs])
+  const groupCats = useMemo(() => flt.group ? new Set((groups.find(g => g.id === flt.group)?.cats) || []) : null, [flt.group, groups])
 
   const filtered = useMemo(() => {
     const s = flt.search.trim().toLowerCase()
     return txs.filter(x => {
-      if (x.xfer && !flt.search) { /* keep transfers only if searched? include always */ }
       if (flt.cat && (x.cat || 'Sin categoría') !== flt.cat) return false
       if (flt.uncat && !isUncat(x)) return false
       if (flt.bank !== 'all' && x.bank !== flt.bank) return false
       if (flt.month && x.ym !== flt.month) return false
+      if (groupCats && !groupCats.has(x.cat)) return false
+      if (flt.dateFrom && (!x.date || x.date < flt.dateFrom)) return false
+      if (flt.dateTo && (!x.date || x.date > flt.dateTo)) return false
+      if (flt.amtMin !== '' && Math.abs(usdOf(x)) < +flt.amtMin) return false
+      if (flt.amtMax !== '' && Math.abs(usdOf(x)) > +flt.amtMax) return false
       if (s) {
         const hay = [x.merchant, x.raw_desc, x.cat, x.notes, x.referencia].filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true
     })
-  }, [txs, flt])
+  }, [txs, flt, groupCats])
 
   const shown = filtered.slice(0, visible)
-  const groups = useMemo(() => groupBy(shown, x => x.date), [shown])
+  const dayGroups = useMemo(() => groupBy(shown, x => x.date), [shown])
 
-  const filterActive = flt.cat || flt.uncat || flt.bank !== 'all' || flt.month || flt.search
+  const advCount = [flt.group, flt.dateFrom, flt.dateTo, flt.amtMin !== '' ? flt.amtMin : null, flt.amtMax !== '' ? flt.amtMax : null].filter(v => v).length
+  const advActive = advCount > 0
+  const filterActive = flt.cat || flt.uncat || flt.bank !== 'all' || flt.month || flt.search || advActive
   const sumUsd = filtered.filter(x => !x.xfer).reduce((s, x) => s + usdOf(x), 0)
 
   return (
@@ -281,20 +318,30 @@ function MovimientosTab({ txs, t, flt, setFlt, onEdit, onDelete, openCatPicker, 
               border: `1px solid ${flt.uncat ? 'transparent' : t.line}`, background: flt.uncat ? t.accent : t.card, color: flt.uncat ? '#fff' : t.inkSoft }}>
             Sin categoría
           </button>
+          <button onClick={() => setAdvOpen(true)}
+            style={{ fontSize: 12.5, fontWeight: 600, padding: '6px 13px', borderRadius: 999, cursor: 'pointer',
+              border: `1px solid ${advActive ? 'transparent' : t.line}`, background: advActive ? t.accent : t.card, color: advActive ? '#fff' : t.inkSoft }}>
+            ⚲ Filtros{advActive ? ` (${advCount})` : ''}
+          </button>
           {flt.cat && <Pill t={t} onClear={() => setFlt(f => ({ ...f, cat: null }))}>Cat: {flt.cat}</Pill>}
           {flt.month && <Pill t={t} onClear={() => setFlt(f => ({ ...f, month: null }))}>{fmtMonth(flt.month)}</Pill>}
+          {flt.group && <Pill t={t} onClear={() => setFlt(f => ({ ...f, group: null }))}>Grupo: {groups.find(g => g.id === flt.group)?.name || '—'}</Pill>}
+          {filterActive && <Pill t={t} onClear={() => setFlt(emptyFlt)}>Limpiar todo</Pill>}
         </div>
 
         {filterActive && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: t.muted, marginBottom: 10, padding: '0 2px' }}>
-            <span>Neto del filtro</span>
-            <b style={{ color: sumUsd < 0 ? t.neg : t.pos, fontVariantNumeric: 'tabular-nums' }}>{fmtUSD(sumUsd)}</b>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, color: t.muted, marginBottom: 10, padding: '0 2px' }}>
+            <span>Neto del filtro · {filtered.filter(x => !x.xfer).length}</span>
+            <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <b style={{ color: sumUsd < 0 ? t.neg : t.pos, fontVariantNumeric: 'tabular-nums' }}>{fmtUSD(sumUsd)}</b>
+              <button onClick={() => exportXLSX(filtered, t, () => {})} style={{ background: 'none', border: 'none', color: t.accent, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>Exportar</button>
+            </span>
           </div>
         )}
 
-        {groups.length === 0 && <div style={{ textAlign: 'center', color: t.muted, marginTop: 40 }}>Nada por acá</div>}
+        {dayGroups.length === 0 && <div style={{ textAlign: 'center', color: t.muted, marginTop: 40 }}>Nada por acá</div>}
 
-        {groups.map(([date, rows]) => (
+        {dayGroups.map(([date, rows]) => (
           <div key={date}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: t.muted, margin: '16px 0 2px' }}>{dayHeader(date)}</div>
             <Card t={t} style={{ padding: '0 15px' }}>
@@ -316,8 +363,57 @@ function MovimientosTab({ txs, t, flt, setFlt, onEdit, onDelete, openCatPicker, 
         position: 'absolute', right: 18, bottom: 68, width: 54, height: 54, borderRadius: 27, border: 'none',
         background: t.accent, color: '#fff', fontSize: 30, lineHeight: 1, cursor: 'pointer', boxShadow: `0 8px 20px -6px ${t.accent}`,
       }}>+</button>
+
+      <Sheet open={advOpen} onClose={() => setAdvOpen(false)} title="Filtros" t={t}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ flex: 1 }}><Field label="Desde" t={t}><input type="date" value={flt.dateFrom} onChange={e => setFlt(f => ({ ...f, dateFrom: e.target.value }))} style={inputStyle(t)} /></Field></div>
+          <div style={{ flex: 1 }}><Field label="Hasta" t={t}><input type="date" value={flt.dateTo} onChange={e => setFlt(f => ({ ...f, dateTo: e.target.value }))} style={inputStyle(t)} /></Field></div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ flex: 1 }}><Field label="Monto mín (USD)" t={t}><input type="number" inputMode="decimal" value={flt.amtMin} onChange={e => setFlt(f => ({ ...f, amtMin: e.target.value }))} style={inputStyle(t)} /></Field></div>
+          <div style={{ flex: 1 }}><Field label="Monto máx (USD)" t={t}><input type="number" inputMode="decimal" value={flt.amtMax} onChange={e => setFlt(f => ({ ...f, amtMax: e.target.value }))} style={inputStyle(t)} /></Field></div>
+        </div>
+        {groups.length > 0 && (
+          <Field label="Grupo de gastos" t={t}>
+            <select value={flt.group || ''} onChange={e => setFlt(f => ({ ...f, group: e.target.value || null }))} style={{ ...inputStyle(t), background: t.inputBg, color: t.ink }}>
+              <option value="">— Todos —</option>
+              {groups.map(g => <option key={g.id} value={g.id} style={{ background: t.inputBg, color: t.ink }}>{g.name} ({g.cats?.length || 0})</option>)}
+            </select>
+          </Field>
+        )}
+        <div style={{ display: 'flex', gap: 9, marginTop: 6 }}>
+          <Btn t={t} variant="plain" onClick={() => setFlt(f => ({ ...emptyFlt, search: f.search, bank: f.bank }))} style={{ flex: 1 }}>Limpiar</Btn>
+          <Btn t={t} variant="filled" onClick={() => setAdvOpen(false)} style={{ flex: 1 }}>Ver {filtered.length}</Btn>
+        </div>
+      </Sheet>
     </>
   )
+}
+
+// Build an XLSX from rows and share (native/web) or download.
+function exportXLSX(rows, t, done) {
+  try {
+    const data = rows.map(r => ({
+      Fecha: r.date ?? '', Merchant: r.merchant ?? '', 'Descripción': r.raw_desc ?? '',
+      'Categoría': r.cat ?? '', Banco: r.bank ?? '', ARS: r.ars ?? '', USD: r.usd ?? '',
+      'USD Rate': r.usd_rate ?? '', Notas: r.notes ?? '', Referencia: r.referencia ?? '', ID: r.id ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Gastos')
+    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const fname = `gastos-${new Date().toISOString().slice(0, 10)}.xlsx`
+    const file = new File([blob], fname, { type: blob.type })
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: 'Gastos' }).catch(() => {})
+    } else {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = fname; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
+    done?.()
+  } catch (e) { done?.(e) }
 }
 
 function Pill({ children, onClear, t }) {
@@ -538,6 +634,35 @@ function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, se
   const [iaLog, setIaLog] = useState(null)
   const [upMsg, setUpMsg] = useState(null)
   const fileRef = useRef(null)
+  const [groupSheet, setGroupSheet] = useState(null)   // 'new' | group object
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [trashList, setTrashList] = useState(null)
+  const [addCatOpen, setAddCatOpen] = useState(false)
+  const [newCatVal, setNewCatVal] = useState('')
+
+  const groups = settings.expense_groups || []
+
+  async function saveGroups(next) {
+    setSettings(s => ({ ...s, expense_groups: next }))
+    try { await saveSettings({ ...settings, expense_groups: next }) } catch (e) { setErr(e.message) }
+  }
+  async function addCategory() {
+    const c = newCatVal.trim(); setAddCatOpen(false); setNewCatVal('')
+    if (!c) return
+    const base = settings.cats?.length ? settings.cats : availCats
+    if (base.includes(c)) return
+    const next = [...base, c]
+    setSettings(s => ({ ...s, cats: next }))
+    try { await saveSettings({ ...settings, cats: next }) } catch (e) { setErr(e.message) }
+  }
+  async function openTrash() {
+    setTrashOpen(true)
+    if (!trashList) { try { setTrashList(await loadDeletedTransactions()) } catch { setTrashList([]) } }
+  }
+  async function doRestore(id) {
+    setTrashList(list => list.filter(x => x.id !== id))
+    try { await restoreTransaction(id); await reloadAll() } catch (e) { setErr(e.message) }
+  }
 
   const catCounts = useMemo(() => {
     const m = new Map()
@@ -608,10 +733,21 @@ function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, se
       <Section t={t} title="Datos">
         <RowItem t={t} label="Subir XLSX (Santander)" sub={upMsg?.text} onClick={() => fileRef.current?.click()} chevron />
         <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} style={{ display: 'none' }} />
+        <RowItem t={t} label="Exportar / Compartir XLSX" sub={`${txs.length.toLocaleString('es-AR')} movimientos`} onClick={() => exportXLSX(txs, t, e => e && setErr(e.message))} chevron />
+        <RowItem t={t} label="Papelera" sub="Ver y restaurar borrados" onClick={openTrash} chevron />
         <RowItem t={t} label="Historial IA" onClick={openIa} chevron />
       </Section>
 
+      <Section t={t} title={`Grupos de gastos (${groups.length})`}>
+        {groups.map(g => (
+          <RowItem key={g.id} t={t} label={g.name} sub={`${g.cats?.length || 0} categorías${g.showOnDash ? ' · en resumen' : ''}`}
+            onClick={() => setGroupSheet(g)} chevron />
+        ))}
+        <RowItem t={t} label="+ Nuevo grupo" onClick={() => setGroupSheet('new')} />
+      </Section>
+
       <Section t={t} title={`Categorías (${catsWithCounts.length})`}>
+        <RowItem t={t} label="+ Agregar categoría" onClick={() => { setNewCatVal(''); setAddCatOpen(true) }} />
         {catsWithCounts.slice(0, 60).map(c => (
           <RowItem key={c} t={t} label={c} sub={`${catCounts.get(c) || 0} movim.`}
             leading={<span style={{ width: 12, height: 12, borderRadius: 4, background: catColor(c, .8), display: 'inline-block' }} />}
@@ -635,6 +771,33 @@ function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, se
         <div style={{ fontSize: 11.5, color: t.muted, marginBottom: 12 }}>Escribí un nombre existente para fusionar, o uno nuevo para renombrar. Afecta {catCounts.get(catSheet) || 0} movimientos.</div>
         <Btn t={t} variant="filled" onClick={applyRename}>Aplicar</Btn>
         <Btn t={t} variant="danger" onClick={emptyCat} style={{ marginTop: 9 }}>Vaciar categoría (sin cat.)</Btn>
+      </Sheet>
+
+      {/* Add category sheet */}
+      <Sheet open={addCatOpen} onClose={() => setAddCatOpen(false)} title="Agregar categoría" t={t}>
+        <Field label="Nombre" t={t}><input value={newCatVal} onChange={e => setNewCatVal(e.target.value)} autoFocus style={inputStyle(t)} /></Field>
+        <Btn t={t} variant="filled" onClick={addCategory}>Agregar</Btn>
+      </Sheet>
+
+      {/* Group editor sheet */}
+      <GroupSheet open={!!groupSheet} group={groupSheet === 'new' ? null : groupSheet} onClose={() => setGroupSheet(null)}
+        t={t} allCats={catsWithCounts}
+        onSave={g => { const rest = groups.filter(x => x.id !== g.id); saveGroups([...rest, g]); setGroupSheet(null) }}
+        onDelete={id => { saveGroups(groups.filter(x => x.id !== id)); setGroupSheet(null) }} />
+
+      {/* Trash sheet */}
+      <Sheet open={trashOpen} onClose={() => setTrashOpen(false)} title="Papelera" t={t}>
+        {trashList === null && <div style={{ color: t.muted }}>Cargando…</div>}
+        {trashList && trashList.length === 0 && <div style={{ color: t.muted }}>Sin movimientos borrados</div>}
+        {trashList && trashList.map(x => (
+          <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${t.lineSoft}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.merchant || x.raw_desc || '—'}</div>
+              <div style={{ fontSize: 11, color: t.muted }}>{fmtDate(x.date)} · {fmtUSD(usdOf(x))}</div>
+            </div>
+            <button onClick={() => doRestore(x.id)} style={{ background: t.accentBg, color: t.accentInk, border: 'none', borderRadius: 9, padding: '7px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Restaurar</button>
+          </div>
+        ))}
       </Sheet>
 
       {/* IA history sheet */}
@@ -705,6 +868,38 @@ function CatPicker({ open, onClose, title, cats, onPick, t }) {
 }
 function catChip(t) {
   return { border: `1px solid ${t.line}`, background: t.card2, color: t.ink, padding: '9px 13px', borderRadius: 11, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }
+}
+
+function GroupSheet({ open, group, onClose, t, allCats, onSave, onDelete }) {
+  const [name, setName] = useState('')
+  const [showOnDash, setShowOnDash] = useState(false)
+  const [cats, setCats] = useState([])
+  useEffect(() => {
+    if (open) { setName(group?.name || ''); setShowOnDash(!!group?.showOnDash); setCats(group?.cats || []) }
+  }, [open, group])
+  const toggle = c => setCats(cs => cs.includes(c) ? cs.filter(x => x !== c) : [...cs, c])
+  function save() {
+    if (!name.trim()) return
+    const id = group?.id || ('g_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5))
+    onSave({ id, name: name.trim(), cats, showOnDash })
+  }
+  return (
+    <Sheet open={open} onClose={onClose} title={group ? 'Editar grupo' : 'Nuevo grupo'} t={t}>
+      <Field label="Nombre" t={t}><input value={name} onChange={e => setName(e.target.value)} style={inputStyle(t)} /></Field>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '2px 2px 14px', fontSize: 14 }}>
+        <input type="checkbox" checked={showOnDash} onChange={e => setShowOnDash(e.target.checked)} /> Mostrar en Resumen
+      </label>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: t.muted, marginBottom: 8 }}>Categorías ({cats.length})</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        {allCats.map(c => {
+          const on = cats.includes(c)
+          return <button key={c} onClick={() => toggle(c)} style={{ ...catChip(t), background: on ? catColor(c, t.dark ? 0.24 : 0.16) : t.card2, color: on ? (t.dark ? '#eaeaf5' : '#222') : t.muted, border: `1px solid ${on ? 'transparent' : t.line}` }}>{on ? '✓ ' : ''}{c}</button>
+        })}
+      </div>
+      <Btn t={t} variant="filled" onClick={save}>Guardar</Btn>
+      {group && <Btn t={t} variant="danger" onClick={() => onDelete(group.id)} style={{ marginTop: 9 }}>Eliminar grupo</Btn>}
+    </Sheet>
+  )
 }
 
 function TxSheet({ tx, open, isNew, onClose, t, saveTx, addTx, deleteTx, openCatPicker }) {
