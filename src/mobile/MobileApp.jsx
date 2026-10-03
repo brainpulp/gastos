@@ -35,7 +35,40 @@ export default function MobileApp({ session, onLogout }) {
   // editing / pickers
   const [editTx, setEditTx] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [addPrefill, setAddPrefill] = useState(null)
+  const [dictarOpen, setDictarOpen] = useState(false)
   const [picker, setPicker] = useState(null) // { onPick, title }
+
+  function openAdd(prefill = null) { setAddPrefill(prefill); setAddOpen(true) }
+
+  // Dictado: free-text phrase → parse-tx Edge Function → prefill the Add sheet for confirmation
+  async function parseDictado(text) {
+    const base = import.meta.env.VITE_SUPABASE_URL
+    const res = await fetch(`${base}/functions/v1/parse-tx`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ text, today: new Date().toISOString().slice(0, 10), categories: availCats }),
+    })
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Error ${res.status}`) }
+    const p = await res.json()
+    const rate = makeRateLookup(blueRates)(p.date) || 1390
+    const sign = p.direction === 'income' ? 1 : -1
+    const amt = Math.abs(+p.amount || 0)
+    let usd = '', ars = ''
+    if (p.currency === 'USD') { usd = sign * amt }
+    else { ars = sign * amt; usd = +((sign * amt) / rate).toFixed(2) }
+    const prefill = {
+      date: p.date || new Date().toISOString().slice(0, 10),
+      merchant: p.merchant || '', cat: p.cat || null, bank: p.bank || 'Cash',
+      usd, ars, notes: p.note || '', xfer: false, needs_review: !!p.needs_review,
+    }
+    setDictarOpen(false)
+    openAdd(prefill)
+  }
 
   useEffect(() => {
     localStorage.setItem('gastos-theme', dark ? 'dark' : 'light')
@@ -99,7 +132,7 @@ export default function MobileApp({ session, onLogout }) {
         ) : (
           <>
             {tab === 'resumen' && <ResumenTab {...{ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount: reviewTxs.length, setTab }} />}
-            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, emptyFlt: EMPTY_FLT, groups: settings.expense_groups || [], availCats, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => setAddOpen(true) }} />}
+            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, emptyFlt: EMPTY_FLT, groups: settings.expense_groups || [], availCats, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => openAdd(), onDictar: () => setDictarOpen(true) }} />}
             {tab === 'revisar' && <RevisarTab {...{ reviewTxs, t, saveTx, openCatPicker }} />}
             {tab === 'forense' && <ForenseTab {...{ txs, t, onEdit: setEditTx }} />}
             {tab === 'config'  && <ConfigTab {...{ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr }} />}
@@ -112,7 +145,9 @@ export default function MobileApp({ session, onLogout }) {
       {/* Edit sheet */}
       <TxSheet tx={editTx} open={!!editTx} onClose={() => setEditTx(null)} {...{ t, saveTx, deleteTx, openCatPicker }} />
       {/* Add sheet */}
-      <TxSheet open={addOpen} isNew onClose={() => setAddOpen(false)} {...{ t, addTx, openCatPicker }} />
+      <TxSheet open={addOpen} isNew prefill={addPrefill} onClose={() => setAddOpen(false)} {...{ t, addTx, openCatPicker }} />
+      {/* Dictado */}
+      <DictarSheet open={dictarOpen} onClose={() => setDictarOpen(false)} t={t} onSubmit={parseDictado} />
       {/* Category picker */}
       <CatPicker open={!!picker} onClose={() => setPicker(null)} title={picker?.title} cats={availCats} t={t}
         onPick={c => { picker?.onPick(c); setPicker(null) }} />
@@ -265,7 +300,7 @@ function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCou
 }
 
 // ═══════════════════════ MOVIMIENTOS ═══════════════════════
-function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEdit, onDelete, openCatPicker, saveTx, onAdd }) {
+function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEdit, onDelete, openCatPicker, saveTx, onAdd, onDictar }) {
   const [visible, setVisible] = useState(50)
   const [advOpen, setAdvOpen] = useState(false)
   const banksPresent = useMemo(() => ['all', ...BANKS.filter(b => txs.some(x => x.bank === b))], [txs])
@@ -359,6 +394,11 @@ function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEd
         {visible < filtered.length && <div style={{ textAlign: 'center', color: t.muted, fontSize: 12, padding: 16 }}>cargando más…</div>}
       </TabScroll>
 
+      <button onClick={onDictar} aria-label="Dictar" style={{
+        position: 'absolute', right: 18, bottom: 130, width: 54, height: 54, borderRadius: 27, border: 'none',
+        background: t.card, color: t.accent, fontSize: 24, lineHeight: 1, cursor: 'pointer',
+        boxShadow: t.shadow, border: `1px solid ${t.line}`,
+      }}>⚡</button>
       <button onClick={onAdd} aria-label="Agregar" style={{
         position: 'absolute', right: 18, bottom: 68, width: 54, height: 54, borderRadius: 27, border: 'none',
         background: t.accent, color: '#fff', fontSize: 30, lineHeight: 1, cursor: 'pointer', boxShadow: `0 8px 20px -6px ${t.accent}`,
@@ -902,15 +942,43 @@ function GroupSheet({ open, group, onClose, t, allCats, onSave, onDelete }) {
   )
 }
 
-function TxSheet({ tx, open, isNew, onClose, t, saveTx, addTx, deleteTx, openCatPicker }) {
+function DictarSheet({ open, onClose, t, onSubmit }) {
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState(null)
+  useEffect(() => { if (open) { setText(''); setErr(null); setLoading(false) } }, [open])
+  async function go() {
+    const v = text.trim()
+    if (!v) return
+    setLoading(true); setErr(null)
+    try { await onSubmit(v) } catch (e) { setErr(e.message); setLoading(false) }
+  }
+  return (
+    <Sheet open={open} onClose={onClose} title="Dictar movimiento" t={t}>
+      <div style={{ fontSize: 12.5, color: t.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        Escribí, o tocá el <b style={{ color: t.inkSoft }}>🎤</b> del teclado y hablá. Lo interpreto y te muestro el
+        movimiento para confirmar. Ej: <i>“20 mil de estacionamiento efectivo”</i>.
+      </div>
+      <textarea value={text} onChange={e => setText(e.target.value)} autoFocus rows={3}
+        placeholder="20 mil de estacionamiento efectivo"
+        style={{ ...inputStyle(t), resize: 'none', fontFamily: SF, fontSize: 16 }} />
+      {err && <div style={{ color: t.neg, fontSize: 12.5, marginTop: 8 }}>{err}</div>}
+      <Btn t={t} variant="filled" onClick={go} disabled={loading || !text.trim()} style={{ marginTop: 12 }}>
+        {loading ? 'Interpretando…' : 'Interpretar'}
+      </Btn>
+    </Sheet>
+  )
+}
+
+function TxSheet({ tx, open, isNew, onClose, t, saveTx, addTx, deleteTx, openCatPicker, prefill }) {
   const blank = { date: new Date().toISOString().slice(0, 10), merchant: '', cat: null, bank: 'Santander', usd: '', ars: '', notes: '', xfer: false, needs_review: false }
   const [f, setF] = useState(blank)
   useEffect(() => {
-    if (open) setF(isNew ? blank : {
+    if (open) setF(isNew ? { ...blank, ...(prefill || {}) } : {
       date: tx.date || '', merchant: tx.merchant || '', cat: tx.cat || null, bank: tx.bank || '',
       usd: tx.usd ?? '', ars: tx.ars ?? '', notes: tx.notes || '', xfer: !!tx.xfer, needs_review: !!tx.needs_review,
     })
-  }, [open, tx, isNew])
+  }, [open, tx, isNew, prefill])
 
   const set = k => e => setF(p => ({ ...p, [k]: e.target.value }))
 
