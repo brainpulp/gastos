@@ -76,6 +76,14 @@ export default function MobileApp({ session, onLogout }) {
   }, [dark])
 
   useEffect(() => { reloadAll() }, [])
+
+  // Reload data when the app regains focus / becomes visible again (reopening the PWA)
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === 'visible') reloadAll() }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis) }
+  }, [])
   async function reloadAll() {
     try {
       const [tx, st, br] = await Promise.all([loadTransactions(), loadSettings(), loadBlueRates()])
@@ -131,11 +139,11 @@ export default function MobileApp({ session, onLogout }) {
           <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: t.muted }}>Cargando…</div>
         ) : (
           <>
-            {tab === 'resumen' && <ResumenTab {...{ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount: reviewTxs.length, setTab }} />}
-            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, emptyFlt: EMPTY_FLT, groups: settings.expense_groups || [], availCats, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => openAdd(), onDictar: () => setDictarOpen(true) }} />}
-            {tab === 'revisar' && <RevisarTab {...{ reviewTxs, t, saveTx, openCatPicker }} />}
-            {tab === 'forense' && <ForenseTab {...{ txs, t, onEdit: setEditTx }} />}
-            {tab === 'config'  && <ConfigTab {...{ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr }} />}
+            {tab === 'resumen' && <ResumenTab {...{ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount: reviewTxs.length, setTab, onRefresh: reloadAll }} />}
+            {tab === 'movim'   && <MovimientosTab {...{ txs, t, flt, setFlt, emptyFlt: EMPTY_FLT, groups: settings.expense_groups || [], availCats, onEdit: setEditTx, onDelete: deleteTx, openCatPicker, saveTx, onAdd: () => openAdd(), onDictar: () => setDictarOpen(true), onRefresh: reloadAll }} />}
+            {tab === 'revisar' && <RevisarTab {...{ reviewTxs, t, saveTx, openCatPicker, onRefresh: reloadAll }} />}
+            {tab === 'forense' && <ForenseTab {...{ txs, t, onEdit: setEditTx, onRefresh: reloadAll }} />}
+            {tab === 'config'  && <ConfigTab {...{ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr, onRefresh: reloadAll }} />}
           </>
         )}
       </div>
@@ -161,9 +169,13 @@ export default function MobileApp({ session, onLogout }) {
   )
 }
 
-// scroll container for a tab
-function TabScroll({ children, onScrollNearBottom }) {
+// scroll container for a tab — supports pull-to-refresh (onRefresh) + infinite scroll
+function TabScroll({ children, onScrollNearBottom, onRefresh, t }) {
   const ref = useRef(null)
+  const startY = useRef(null)
+  const [pull, setPull] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+
   useEffect(() => {
     if (!onScrollNearBottom) return
     const el = ref.current
@@ -171,16 +183,48 @@ function TabScroll({ children, onScrollNearBottom }) {
     el.addEventListener('scroll', h)
     return () => el.removeEventListener('scroll', h)
   }, [onScrollNearBottom])
+
+  const onTouchStart = e => {
+    if (!onRefresh || refreshing) { startY.current = null; return }
+    startY.current = ref.current.scrollTop <= 0 ? e.touches[0].clientY : null
+  }
+  const onTouchMove = e => {
+    if (startY.current == null) return
+    const dy = e.touches[0].clientY - startY.current
+    if (dy > 0 && ref.current.scrollTop <= 0) setPull(Math.min(80, dy * 0.5))
+    else if (dy <= 0) setPull(0)
+  }
+  const onTouchEnd = async () => {
+    if (startY.current == null) return
+    const trigger = pull > 55
+    startY.current = null
+    if (trigger && onRefresh) {
+      setRefreshing(true); setPull(44)
+      try { await onRefresh() } catch { /* handled upstream */ }
+      setRefreshing(false); setPull(0)
+    } else setPull(0)
+  }
+
+  const t2 = t || { muted: '#888', accent: '#6a5cff' }
   return (
-    <div ref={ref} style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
-      padding: `calc(${safeTop} + 10px) 16px 20px` }}>
-      {children}
+    <div ref={ref} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+      style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative',
+        padding: `calc(${safeTop} + 10px) 16px 20px` }}>
+      {(pull > 0 || refreshing) && (
+        <div style={{ position: 'absolute', top: `calc(${safeTop} + 2px)`, left: 0, right: 0, textAlign: 'center',
+          fontSize: 12, color: t2.muted, opacity: Math.min(1, pull / 55), pointerEvents: 'none' }}>
+          {refreshing ? '↻ Actualizando…' : pull > 55 ? '↑ Soltá para actualizar' : '↓ Tirá para actualizar'}
+        </div>
+      )}
+      <div style={{ transform: pull ? `translateY(${pull}px)` : 'none', transition: startY.current == null ? 'transform .22s' : 'none' }}>
+        {children}
+      </div>
     </div>
   )
 }
 
 // ═══════════════════════ RESUMEN ═══════════════════════
-function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount, setTab }) {
+function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCount, setTab, onRefresh }) {
   const now = new Date()
   const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
@@ -227,7 +271,7 @@ function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCou
   }, [settings, last12])
 
   return (
-    <TabScroll t={t}>
+    <TabScroll t={t} onRefresh={onRefresh}>
       <LargeTitle sub="Últimos 12 meses · USD">Resumen</LargeTitle>
 
       {/* balance card */}
@@ -300,7 +344,7 @@ function ResumenTab({ txs, settings, t, goToCat, goToMonth, goToGroup, reviewCou
 }
 
 // ═══════════════════════ MOVIMIENTOS ═══════════════════════
-function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEdit, onDelete, openCatPicker, saveTx, onAdd, onDictar }) {
+function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEdit, onDelete, openCatPicker, saveTx, onAdd, onDictar, onRefresh }) {
   const [visible, setVisible] = useState(50)
   const [advOpen, setAdvOpen] = useState(false)
   const banksPresent = useMemo(() => ['all', ...BANKS.filter(b => txs.some(x => x.bank === b))], [txs])
@@ -336,7 +380,7 @@ function MovimientosTab({ txs, t, flt, setFlt, emptyFlt, groups, availCats, onEd
 
   return (
     <>
-      <TabScroll t={t} onScrollNearBottom={() => setVisible(v => (v < filtered.length ? v + 50 : v))}>
+      <TabScroll t={t} onRefresh={onRefresh} onScrollNearBottom={() => setVisible(v => (v < filtered.length ? v + 50 : v))}>
         <LargeTitle sub={`${filtered.length.toLocaleString('es-AR')} movimientos`}>Movimientos</LargeTitle>
 
         <input value={flt.search} onChange={e => setFlt(f => ({ ...f, search: e.target.value }))}
@@ -486,14 +530,14 @@ function TxRow({ tx, t, onClick, borderTop }) {
 }
 
 // ═══════════════════════ REVISAR ═══════════════════════
-function RevisarTab({ reviewTxs, t, saveTx, openCatPicker }) {
+function RevisarTab({ reviewTxs, t, saveTx, openCatPicker, onRefresh }) {
   const [i, setI] = useState(0)
   const idx = Math.min(i, Math.max(0, reviewTxs.length - 1)) // clamp at render, no effect
   const tx = reviewTxs[idx]
 
   if (!reviewTxs.length) {
     return (
-      <TabScroll t={t}>
+      <TabScroll t={t} onRefresh={onRefresh}>
         <LargeTitle>Revisar</LargeTitle>
         <div style={{ textAlign: 'center', color: t.muted, marginTop: 80 }}>
           <div style={{ fontSize: 46 }}>✓</div>
@@ -509,7 +553,7 @@ function RevisarTab({ reviewTxs, t, saveTx, openCatPicker }) {
   const change = () => openCatPicker(c => saveTx(tx.id, { cat: c, ai_assigned: false, needs_review: false }), 'Cambiar categoría')
 
   return (
-    <TabScroll t={t}>
+    <TabScroll t={t} onRefresh={onRefresh}>
       <LargeTitle sub={`${idx + 1} de ${reviewTxs.length} · la IA propuso estas categorías`}>Revisar</LargeTitle>
 
       <Card t={t} style={{ marginTop: 6, padding: 18 }}>
@@ -545,7 +589,7 @@ function navBtn(t, disabled) {
 }
 
 // ═══════════════════════ FORENSE ═══════════════════════
-function ForenseTab({ txs, t, onEdit }) {
+function ForenseTab({ txs, t, onEdit, onRefresh }) {
   const [win, setWin] = useState('2020')       // '2020' | '2023'
   const [threshold, setThreshold] = useState(5000)
 
@@ -578,7 +622,7 @@ function ForenseTab({ txs, t, onEdit }) {
     [scope, threshold])
 
   return (
-    <TabScroll t={t}>
+    <TabScroll t={t} onRefresh={onRefresh}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.14em', textTransform: 'uppercase', color: t.cyan }}>● Forense</span>
         <span style={{ marginLeft: 'auto', fontSize: 10.5, color: t.muted, fontVariantNumeric: 'tabular-nums' }}>{win === '2023' ? '2020 – 2023' : '2020 → hoy'}</span>
@@ -665,7 +709,7 @@ function Kpi({ label, value, color, t }) {
 }
 
 // ═══════════════════════ CONFIG ═══════════════════════
-function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr }) {
+function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, session, onLogout, blueRates, reloadAll, setErr, onRefresh }) {
   const [budget, setBudget] = useState(settings.monthly_budget_usd || 0)
   const [budgetSaved, setBudgetSaved] = useState(false)
   const [catSheet, setCatSheet] = useState(null)      // category name being edited
@@ -756,7 +800,7 @@ function ConfigTab({ txs, settings, setSettings, t, dark, setDark, availCats, se
   }
 
   return (
-    <TabScroll t={t}>
+    <TabScroll t={t} onRefresh={onRefresh}>
       <LargeTitle>Config</LargeTitle>
 
       <Section t={t} title="Apariencia">
