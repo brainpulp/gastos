@@ -11,6 +11,13 @@ Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages 
 > reconciliation. **See [`FORENSIC.md`](./FORENSIC.md) for the full mandate, methodology,
 > data model, and phased plan. Read it before any forensic/assets/cash work.**
 
+> ## ⏳ PENDING MANUAL TAGS — apply on next import
+> Expenses the user dictated that are **not in the data yet**. When importing a
+> Santander/Citibank file, after loading the rows, match each pending item by
+> **date + |amount|**, set its `cat`, and then **remove it from this list** (note the
+> matched tx id). If an item is >60 days old and never appeared, flag it to the user.
+> - **2026-11-09 · ARS 100.000 → `Carhué obra`** — dictated 2026-11-10 ("corresponde a Carué").
+
 ## Links
 - **Live app**: https://brainpulp.github.io/gastos/
 - **GitHub**: https://github.com/brainpulp/gastos
