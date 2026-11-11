@@ -17,6 +17,7 @@ Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages 
 > **date + |amount|**, set its `cat`, and then **remove it from this list** (note the
 > matched tx id). If an item is >60 days old and never appeared, flag it to the user.
 > - **2026-11-09 · ARS 100.000 → `Carhué obra`** — dictated 2026-11-10 ("corresponde a Carué").
+> - **2026-11-11 · ARS 150.000 → `Carhué obra`** — pago a "Cristian", concepto caldera (dictated 2026-11-11).
 
 ## Links
 - **Live app**: https://brainpulp.github.io/gastos/
