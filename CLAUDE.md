@@ -65,6 +65,13 @@ needs_review, deleted_at, created_at, user_id
   - **Nov 2026 ("puchito") not yet imported** — when it arrives, apply the PENDING MANUAL TAGS block above.
   - ARS→USD for recent imports uses an approx dólar blue (blue_rates is stale at 2026-05-11): **Sep 2026 ≈ 1555, Oct 2026 ≈ 1560**. To correct a month's rate: `UPDATE ... SET usd = ars/<rate>, usd_rate=<rate> WHERE ym='2026-10' AND id LIKE 'u\_%'`.
 
+## Payee → project tagging rules (apply on EVERY import, going forward)
+User-confirmed ground truth (2026-11-11). On import, tag these payees by CUIT with **high confidence** (`ai_assigned=true`, `needs_review=false`) — do NOT send to Revisar even when merchant-history looks split:
+- **Always `Carhué obra`:** Oscar Ramón **Ayala** `20274569736` · Rodríguez **Yolanda** Isabel `27320033468` (user calls her "el Mario flaco") · **Bruno** de la Cruz Martín `20455027218` · **Mario** Raúl Villarroel `20267650501`.
+  - ("los dos Marios" = Villarroel + Yolanda.)
+- **`José Luis Martínez` `20275697150` is the ONLY one that alternates** Mocoretá ↔ Carhué → leave `needs_review=true` (manual call per transaction); never auto-confident.
+- Scope: **going-forward only.** Historical rows (Ayala has ~75 old rows in Mocoretá/El Dorado/Arcos, Yolanda ~14 in Arcos) were left as-is by user decision 2026-11-11 — do not mass-retag history unless asked.
+
 ## CRITICAL: description display in dark mode
 **Previously broken, fixed 2026-05-18.** The `raw_desc` display used hardcoded `color: '#1a1a2e'` (dark navy) when no merchant — invisible against dark card background.
 
