@@ -59,7 +59,11 @@ needs_review, deleted_at, created_at, user_id
   - `raw_desc`: populated for 7,471 rows (Santander format: `"TX TYPE \t MERCHANT"`)
   - `merchant`: was null; **fixed 2026-05-18** via SQL — extracted from tab-separated raw_desc, stripped card numbers and CUIT suffixes. 1,684 rows now have merchant.
   - Remaining rows without merchant: US bank format raw_desc (`"Debit Card Purchase #8381 ..."`) — display falls back to raw_desc correctly.
-- `u_*` — Santander XLSX uploads. Currently 0 rows — no XLSX files have been uploaded yet.
+- `u_*` — Santander statement imports (XLSX uploads + parsed PDF statements). ~1,420 rows.
+  - id scheme: `u_YYYY-MM-DD_<comprobante>` when the statement row has a comprobante (XLSX + most parsed PDFs); `u_YYYY-MM-DD_<md5-10hex>` fallback when it doesn't (e.g. the Oct-2026 PDF, whose parser didn't capture comprobante). Both dedup re-imports via `ON CONFLICT (id) DO NOTHING`.
+  - Imported so far: **Mar–Oct 2026** (statements through 2026-10-29). Sep 2026 = 203 rows (tagged by hand/history), Oct 2026 = 152 rows (imported 2026-11-11, tagged by merchant/CUIT history; confident tags `ai_assigned=true`, borderline→`needs_review=true`→Revisar, no-history→left uncategorized like prior stragglers).
+  - **Nov 2026 ("puchito") not yet imported** — when it arrives, apply the PENDING MANUAL TAGS block above.
+  - ARS→USD for recent imports uses an approx dólar blue (blue_rates is stale at 2026-05-11): **Sep 2026 ≈ 1555, Oct 2026 ≈ 1560**. To correct a month's rate: `UPDATE ... SET usd = ars/<rate>, usd_rate=<rate> WHERE ym='2026-10' AND id LIKE 'u\_%'`.
 
 ## CRITICAL: description display in dark mode
 **Previously broken, fixed 2026-05-18.** The `raw_desc` display used hardcoded `color: '#1a1a2e'` (dark navy) when no merchant — invisible against dark card background.
