@@ -482,19 +482,29 @@ Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
   $6k, RAV4 $26k. Motos: Husqvarna $10k, e-bike $3k. Travel: 13 trips 2020–2024, few
   $k each. Projects (no revenue): Arcos, Delta, Eureka rebuild, Carhué remodels.
 
-### Properties are Ingeniero Maschwitz STREET-ADDRESSES, not towns (corrected 2026-11-14)
-Do NOT repeat the earlier error of reading these as towns/provinces. The user's real-estate
-"projects" are **street addresses in Ingeniero Maschwitz, partido de Escobar, prov. Bs As**:
-- **Mocoretá** = the user's **current home**, calle Mocoretá, Maschwitz (§11: "$275k current home").
-- **Carhué** = remodel property, **Pasaje Carhué**, Ing. Maschwitz (§11: "Carhué remodels").
-- **Arcos**, **El Dorado** = further Maschwitz addresses/projects (NOT a town, NOT Corrientes/Alsina).
-- ⇒ **All their property tax = Municipalidad de Escobar (tasa) + ARBA inmobiliario (prov. Bs As).**
-  The five contiguous ARBA partidas `334035701102{32,40,59,67,75}` are the Maschwitz cluster
-  (one large ≈ main house + four smaller lots). **There are NO Corrientes / Adolfo-Alsina taxes —
-  do not search for DGR Corrientes.**
-- **Delta** = island property in **Tigre** (separate partido, its own tax). **Luis María Campos**
-  = CABA flat (ABL; §11 notes it was donated — confirm if still owned/taxed by user). **Roca I+II**
-  = deptos (installments). **"Sol" is NOT a property** — it's the daughter (contribution/university).
+### Properties — corrected map (user, 2026-11-14). Street-addresses in partido de Escobar, NOT towns.
+Do NOT read Mocoretá/Carhué/Arcos as towns or other provinces. **There are NO Corrientes /
+Adolfo-Alsina taxes — never search for DGR Corrientes.**
+
+**Owned & currently taxed by the user (→ property-tax budget):**
+- **Mocoretá** — the **current home**, in **Maquinista Savio** (localidad vecina a Ing. Maschwitz),
+  **partido de Escobar** (§11: "$275k current home").
+- **Carhué** — remodel property, **Pasaje Carhué, Ingeniero Maschwitz**, Escobar (§11: "Carhué remodels").
+- **Arcos** — property/project, Escobar ($574k; confirm still owned).
+- ⇒ These pay **Municipalidad de Escobar (tasa) + ARBA inmobiliario**. The five contiguous ARBA partidas
+  `334035701102{32,40,59,67,75}` are this Escobar cluster (one large ≈ main house + four smaller lots).
+- **Delta** — island in **Tigre** (separate partido → Muni Tigre + ARBA; confirm how its tax is paid; $65k).
+
+**Owned but NOT in the user's tax budget:**
+- **Luis María Campos** — CABA flat. User owns the nuda propiedad but **his mother holds the usufruct**, it
+  is **rented out**, and **Sol currently lives there**; **user pays no tax on it now** (structure is complex).
+- **Roca I & II** — **off-plan (compra de pozo), NOT yet delivered.** **Last installment due end of Nov 2026**
+  → then fully paid; escritura / tracto abreviado pending, or units will be **resold**. No property tax yet.
+  ⏰ **Milestone: fully paid end of Nov 2026** (watch for the final cuota + what happens to the asset).
+
+**Not properties (exclude from all real-estate/asset work):**
+- **El Dorado** — DROP permanently. It was a **rental** (user was the tenant), never owned.
+- **"Sol"** — the daughter (contribution/university), not real estate.
 
 ### Refined big questions (supersede/augment §6)
 - Q1. Where did the **~$4M money-market sweep (Mar 2020)** go, and what fed **Chase**?
