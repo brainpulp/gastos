@@ -493,7 +493,9 @@ Adolfo-Alsina taxes — never search for DGR Corrientes.**
 - **Arcos** — property/project, Escobar ($574k; confirm still owned).
 - ⇒ These pay **Municipalidad de Escobar (tasa) + ARBA inmobiliario**. The five contiguous ARBA partidas
   `334035701102{32,40,59,67,75}` are this Escobar cluster (one large ≈ main house + four smaller lots).
-- **Delta** — island in **Tigre** (separate partido → Muni Tigre + ARBA; confirm how its tax is paid; $65k).
+- **Delta** — island in **Tigre** (separate partido). **Two taxes: ARBA (provincial) + Tigre
+  inmobiliario/municipal. NOT being paid — ~1 year in arrears (accruing surcharges); amounts are NOT in
+  bank data (get from boletas). A LIABILITY to surface & regularize.** ($65k asset value, §11.)
 
 **Owned but NOT in the user's tax budget:**
 - **Luis María Campos** — CABA flat. User owns the nuda propiedad but **his mother holds the usufruct**, it
@@ -503,7 +505,8 @@ Adolfo-Alsina taxes — never search for DGR Corrientes.**
   ⏰ **Milestone: fully paid end of Nov 2026** (watch for the final cuota + what happens to the asset).
 
 **Not properties (exclude from all real-estate/asset work):**
-- **El Dorado** — DROP permanently. It was a **rental** (user was the tenant), never owned.
+- **El Dorado** — NOT real estate. It was a **restaurant business that lost money**, now wound down
+  (near-zero recent expenses). The "El Dorado" expense category = that restaurant's costs (historical).
 - **"Sol"** — the daughter (contribution/university), not real estate.
 
 ### Refined big questions (supersede/augment §6)
