@@ -482,6 +482,33 @@ Root folder `1GBPqLf1BoXf_5ACabOoqV-6-Obh9tWvw` ("forensic"):
   $6k, RAV4 $26k. Motos: Husqvarna $10k, e-bike $3k. Travel: 13 trips 2020–2024, few
   $k each. Projects (no revenue): Arcos, Delta, Eureka rebuild, Carhué remodels.
 
+### Properties — corrected map (user, 2026-11-14). Street-addresses in partido de Escobar, NOT towns.
+Do NOT read Mocoretá/Carhué/Arcos as towns or other provinces. **There are NO Corrientes /
+Adolfo-Alsina taxes — never search for DGR Corrientes.**
+
+**Owned & currently taxed by the user (→ property-tax budget):**
+- **Mocoretá** — the **current home**, in **Maquinista Savio** (localidad vecina a Ing. Maschwitz),
+  **partido de Escobar** (§11: "$275k current home").
+- **Carhué** — remodel property, **Pasaje Carhué, Ingeniero Maschwitz**, Escobar (§11: "Carhué remodels").
+- **Arcos** — property/project, Escobar ($574k; confirm still owned).
+- ⇒ These pay **Municipalidad de Escobar (tasa) + ARBA inmobiliario**. The five contiguous ARBA partidas
+  `334035701102{32,40,59,67,75}` are this Escobar cluster (one large ≈ main house + four smaller lots).
+- **Delta** — island in **Tigre** (separate partido). **Two taxes: ARBA (provincial) + Tigre
+  inmobiliario/municipal. NOT being paid — ~1 year in arrears (accruing surcharges); amounts are NOT in
+  bank data (get from boletas). A LIABILITY to surface & regularize.** ($65k asset value, §11.)
+
+**Owned but NOT in the user's tax budget:**
+- **Luis María Campos** — CABA flat. User owns the nuda propiedad but **his mother holds the usufruct**, it
+  is **rented out**, and **Sol currently lives there**; **user pays no tax on it now** (structure is complex).
+- **Roca I & II** — **off-plan (compra de pozo), NOT yet delivered.** **Last installment due end of Nov 2026**
+  → then fully paid; escritura / tracto abreviado pending, or units will be **resold**. No property tax yet.
+  ⏰ **Milestone: fully paid end of Nov 2026** (watch for the final cuota + what happens to the asset).
+
+**Not properties (exclude from all real-estate/asset work):**
+- **El Dorado** — NOT real estate. It was a **restaurant business that lost money**, now wound down
+  (near-zero recent expenses). The "El Dorado" expense category = that restaurant's costs (historical).
+- **"Sol"** — the daughter (contribution/university), not real estate.
+
 ### Refined big questions (supersede/augment §6)
 - Q1. Where did the **~$4M money-market sweep (Mar 2020)** go, and what fed **Chase**?
 - Q2. What are the **opening balances (Jan 2020)** across all accounts + the

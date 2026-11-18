@@ -18,6 +18,10 @@ Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages 
 > matched tx id). If an item is >60 days old and never appeared, flag it to the user.
 > - **2026-11-09 · ARS 100.000 → `Carhué obra`** — dictated 2026-11-10 ("corresponde a Carué").
 > - **2026-11-11 · ARS 150.000 → `Carhué obra`** — pago a "Cristian", concepto caldera (dictated 2026-11-11).
+> - **2026-11-18 · Mundo Hierro → SPLIT 70% `Mocoreta` / 30% `Carhué obra`** — dictated 2026-11-18. Amount
+>   unknown (not in data yet); match by merchant "Mundo Hierro" + date 2026-11-18. On import, **split the row
+>   into two** (0.70×|amount| → `Mocoreta`, 0.30×|amount| → `Carhué obra`; keep ids distinct, e.g. suffix `_a`/`_b`),
+>   or if not splitting, set `project` to note the 70/30. Shared-materials purchase across both properties.
 
 ## Links
 - **Live app**: https://brainpulp.github.io/gastos/
@@ -59,7 +63,18 @@ needs_review, deleted_at, created_at, user_id
   - `raw_desc`: populated for 7,471 rows (Santander format: `"TX TYPE \t MERCHANT"`)
   - `merchant`: was null; **fixed 2026-05-18** via SQL — extracted from tab-separated raw_desc, stripped card numbers and CUIT suffixes. 1,684 rows now have merchant.
   - Remaining rows without merchant: US bank format raw_desc (`"Debit Card Purchase #8381 ..."`) — display falls back to raw_desc correctly.
-- `u_*` — Santander XLSX uploads. Currently 0 rows — no XLSX files have been uploaded yet.
+- `u_*` — Santander statement imports (XLSX uploads + parsed PDF statements). ~1,420 rows.
+  - id scheme: `u_YYYY-MM-DD_<comprobante>` when the statement row has a comprobante (XLSX + most parsed PDFs); `u_YYYY-MM-DD_<md5-10hex>` fallback when it doesn't (e.g. the Oct-2026 PDF, whose parser didn't capture comprobante). Both dedup re-imports via `ON CONFLICT (id) DO NOTHING`.
+  - Imported so far: **Mar–Oct 2026** (statements through 2026-10-29). Sep 2026 = 203 rows (tagged by hand/history), Oct 2026 = 152 rows (imported 2026-11-11, tagged by merchant/CUIT history; confident tags `ai_assigned=true`, borderline→`needs_review=true`→Revisar, no-history→left uncategorized like prior stragglers).
+  - **Nov 2026 ("puchito") not yet imported** — when it arrives, apply the PENDING MANUAL TAGS block above.
+  - ARS→USD for recent imports uses an approx dólar blue (blue_rates is stale at 2026-05-11): **Sep 2026 ≈ 1555, Oct 2026 ≈ 1560**. To correct a month's rate: `UPDATE ... SET usd = ars/<rate>, usd_rate=<rate> WHERE ym='2026-10' AND id LIKE 'u\_%'`.
+
+## Payee → project tagging rules (apply on EVERY import, going forward)
+User-confirmed ground truth (2026-11-11). On import, tag these payees by CUIT with **high confidence** (`ai_assigned=true`, `needs_review=false`) — do NOT send to Revisar even when merchant-history looks split:
+- **Always `Carhué obra`:** Oscar Ramón **Ayala** `20274569736` · Rodríguez **Yolanda** Isabel `27320033468` (user calls her "el Mario flaco") · **Bruno** de la Cruz Martín `20455027218` · **Mario** Raúl Villarroel `20267650501`.
+  - ("los dos Marios" = Villarroel + Yolanda.)
+- **`José Luis Martínez` `20275697150` is the ONLY one that alternates** Mocoretá ↔ Carhué → leave `needs_review=true` (manual call per transaction); never auto-confident.
+- Scope: **going-forward only.** Historical rows (Ayala has ~75 old rows in Mocoretá/El Dorado/Arcos, Yolanda ~14 in Arcos) were left as-is by user decision 2026-11-11 — do not mass-retag history unless asked.
 
 ## CRITICAL: description display in dark mode
 **Previously broken, fixed 2026-05-18.** The `raw_desc` display used hardcoded `color: '#1a1a2e'` (dark navy) when no merchant — invisible against dark card background.
