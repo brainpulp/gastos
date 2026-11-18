@@ -18,6 +18,10 @@ Personal finance tracker. Single-page React app, Supabase backend, GitHub Pages 
 > matched tx id). If an item is >60 days old and never appeared, flag it to the user.
 > - **2026-11-09 · ARS 100.000 → `Carhué obra`** — dictated 2026-11-10 ("corresponde a Carué").
 > - **2026-11-11 · ARS 150.000 → `Carhué obra`** — pago a "Cristian", concepto caldera (dictated 2026-11-11).
+> - **2026-11-18 · Mundo Hierro → SPLIT 70% `Mocoreta` / 30% `Carhué obra`** — dictated 2026-11-18. Amount
+>   unknown (not in data yet); match by merchant "Mundo Hierro" + date 2026-11-18. On import, **split the row
+>   into two** (0.70×|amount| → `Mocoreta`, 0.30×|amount| → `Carhué obra`; keep ids distinct, e.g. suffix `_a`/`_b`),
+>   or if not splitting, set `project` to note the 70/30. Shared-materials purchase across both properties.
 
 ## Links
 - **Live app**: https://brainpulp.github.io/gastos/
